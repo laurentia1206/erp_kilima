@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const ux = require('../../backend/static/module-ux.js');
+const ux = require('../../frontend/legacy/module-ux.js');
 
 test('recherche multi-mots sans accents et filtre de statut exact', () => {
   const rows = [

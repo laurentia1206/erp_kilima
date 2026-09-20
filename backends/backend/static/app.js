@@ -85,7 +85,7 @@ function toast(msg, kind = "") {
   toastTimer = setTimeout(() => (t.className = "toast"), kind === "ko" ? 6500 : 3500);
 }
 const myRoles = () => (societes.find((s) => s.id === currentSocieteId)?.roles) || [];
-const has = (...rs) => rs.some((r) => myRoles().includes(r));
+const has = (...rs) => !me?.super_administrateur && rs.some((r) => myRoles().includes(r));
 const statusLabels = { transformee:"Transformée en ordre", soumise:"Soumise", approuvee:"Approuvée", rejetee:"Rejetée", annulee:"Annulée", validee:"Validée", payee:"Payée", execute:"Exécuté", en_attente_info:"Précisions demandées", demande_validee:"Demande validée", en_attente:"En attente", terminee:"Terminée", cloturee:"Clôturée", brouillon:"Brouillon", partiellement_payee:"Partiellement payée", soldee:"Soldée", partiellement_recue:"Partiellement reçue", recue:"Reçue", envoyee:"Envoyée", justifiee:"Justifiée" };
 const pill = (st) => `<span class="pill st-${esc(st || "")}">${esc(statusLabels[st] || (st || "").replace(/_/g, " "))}</span>`;
 
@@ -117,28 +117,30 @@ function logout() {
 async function boot() {
   me = await api("/auth/me");
   societes = await api("/societes");
-  if (!societes.length) { logout(); throw new Error("Aucune société affectée à ce compte. Contactez votre administrateur."); }
+  if (!societes.length && !me.super_administrateur) { logout(); throw new Error("Aucune société affectée à ce compte. Contactez votre administrateur."); }
   const savedSociete = localStorage.getItem("kh_societe_" + me.id);
-  currentSocieteId = societes.some((s) => s.id === savedSociete) ? savedSociete : societes[0].id;
+  currentSocieteId = societes.some((s) => s.id === savedSociete) ? savedSociete : societes[0]?.id || null;
   $("#who-nm").textContent = me.nom + (me.prenom ? " " + me.prenom : "");
   $("#who-em").textContent = me.email;
   $("#avatar").textContent = (me.nom || "?").slice(0, 1).toUpperCase();
   const sel = $("#societe-select");
   sel.innerHTML = societes.map((s) => `<option value="${s.id}">${esc(s.nom)}</option>`).join("");
   sel.value = currentSocieteId;
+  sel.classList.toggle("hidden",Boolean(me.super_administrateur));
+  $("#pilotage-alertes").classList.toggle("hidden",Boolean(me.super_administrateur));
   renderSidebar();
   $("#login").classList.add("hidden"); $("#app").classList.remove("hidden");
-  await refreshBadge();
-  Pilotage.badge();
-  if (hasGlobal("COMPTABLE", "DFI")) refreshComptaBadge();
+  if(!me.super_administrateur){await refreshBadge();Pilotage.badge();}else Pilotage.reset();
+  if (!me.super_administrateur && hasGlobal("COMPTABLE", "DFI")) refreshComptaBadge();
   // Un réceptionniste atterrit directement sur son tableau de bord hôtel
   const rolesTous = societes.flatMap((s) => s.roles);
-  if (rolesTous.length && rolesTous.every((r) => r === "RECEPTIONNISTE")) go("hotel-reception");
+  if (me.super_administrateur) go('systeme');
+  else if (rolesTous.length && rolesTous.every((r) => r === "RECEPTIONNISTE")) go("hotel-reception");
   else go("accueil");
 }
 
 // ── Menu latéral dépliable (généré selon les rôles) ──────────────────
-const hasGlobal = (...rs) => societes.some((s) => s.roles.some((r) => rs.includes(r)));
+const hasGlobal = (...rs) => Boolean(me?.super_administrateur) || societes.some((s) => s.roles.some((r) => rs.includes(r)));
 let collapsed = savedJSON("kh_collapsed", {});
 const NAV = [
   { g: "Pilotage", items: [
@@ -215,12 +217,12 @@ function renderSidebar() {
   let h = "";
   for (const grp of NAV) {
     if (grp.roles && !hasGlobal(...grp.roles)) continue;
-    const items = grp.items.filter((it) => !it.roles || hasGlobal(...it.roles));
+    const items = grp.items.filter((it) => (!it.roles || hasGlobal(...it.roles)) && Systeme.autorise(it.v));
     if (!items.length) continue;
     h += `<div class="nav-group ${collapsed[grp.g] ? "collapsed" : ""}">
       <button type="button" class="nav-group-hdr" aria-expanded="${!collapsed[grp.g]}" data-toggle="${grp.g}">${grp.g}<i class="ti ti-chevron-down chev"></i></button>
       <div class="nav-children">${items.map((it) => `
-        <button type="button" class="nav-item" data-view="${it.v}"><i class="ti ${it.i}"></i> ${it.l}
+        <button type="button" class="nav-item" data-view="${it.v}"><i class="ti ${it.i}"></i> ${me?.super_administrateur&&it.v==="administration"?"Utilisateurs & rôles":me?.super_administrateur&&it.v==="audit"?"Journal des utilisateurs":it.l}
         ${it.badge ? `<span class="nav-badge hidden" data-badge="${it.badge}">0</span>` : ""}</button>`).join("")}</div></div>`;
   }
   const nav = $("#sidebar-nav");
@@ -286,6 +288,8 @@ const TITLES = {
   administration: ["Administration", "Sociétés du groupe, agents & rôles, tiers — la fondation de l'ERP"],
 };
 async function go(view, groupePrefere) {
+  if(me?.changer_mot_de_passe && view!=='systeme')view='systeme';
+  if (typeof Systeme!=='undefined' && !Systeme.autorise(view)) { toast('Accès à ce module désactivé dans vos permissions.','ko'); return; }
   if(activeView==='tva' && !Clotures.confirmLeave())return;
   if (!$("#view-" + view)) return;
   const version = ++navigationVersion;
@@ -295,15 +299,15 @@ async function go(view, groupePrefere) {
   if($('#nav-search').value){$('#nav-search').value='';Navigation.rechercher('');}
   document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
   $("#view-" + view).classList.add("active");
-  $("#page-title").textContent = (TITLES[view] || [view, ""])[0];
-  $("#page-sub").textContent = (TITLES[view] || ["", ""])[1];
+  $("#page-title").textContent = me.super_administrateur&&view==="administration"?"Utilisateurs & rôles":me.super_administrateur&&view==="audit"?"Journal des utilisateurs":(TITLES[view] || [view, ""])[0];
+  $("#page-sub").textContent = me.super_administrateur&&view==="administration"?"Comptes utilisateurs, rôles et affectations":(TITLES[view] || ["", ""])[1];
   $(".content").scrollTop = 0;
   if (view !== "accueil" && me) {
     const key = "kh_recent_" + me.id;
     const recent = savedJSON(key, []).filter((v) => v !== view);
     localStorage.setItem(key, JSON.stringify([view, ...recent].slice(0, 5)));
   }
-  refreshFluxBadges();
+  if(!me.super_administrateur)refreshFluxBadges();
   try { await (RENDER[view] || (() => {}))(); }
   catch (e) {
     if (version !== navigationVersion || !token) return;
@@ -7261,13 +7265,14 @@ function reglagesTransportModal() {
 // ═══ Administration : sociétés, agents, tiers ════════════════════════
 let adminTab = "societes";
 RENDER.administration = async () => {
+  if(me.super_administrateur && !["agents","roles"].includes(adminTab))adminTab="agents";
   const el = $("#view-administration");
   el.innerHTML = `<div class="muted">Chargement…</div>`;
   const seg = `<div class="seg">
-    <button data-ad="societes" class="${adminTab === "societes" ? "on" : ""}">Sociétés</button>
+    ${me.super_administrateur?'':`<button data-ad="societes" class="${adminTab === "societes" ? "on" : ""}">Sociétés</button>`}
     <button data-ad="agents" class="${adminTab === "agents" ? "on" : ""}">Agents</button>
     <button data-ad="roles" class="${adminTab === "roles" ? "on" : ""}">Rôles</button>
-    <button data-ad="tiers" class="${adminTab === "tiers" ? "on" : ""}">Tiers</button></div>`;
+    ${me.super_administrateur?'':`<button data-ad="tiers" class="${adminTab === "tiers" ? "on" : ""}">Tiers</button>`}</div>`;
   let body = "";
   if (adminTab === "societes") {
     const socs = (await api(`/config/societes`).catch(() => [])).filter((s) => s.id);
@@ -7371,6 +7376,8 @@ RENDER.administration = async () => {
       sel.innerHTML = societes.map((x) => `<option value="${x.id}">${esc(Catalogue.label(x))}</option>`).join("");
       if (!societes.find((x) => x.id === currentSocieteId)) currentSocieteId = societes[0] && societes[0].id;
       sel.value = currentSocieteId;
+  sel.classList.toggle("hidden",Boolean(me.super_administrateur));
+  $("#pilotage-alertes").classList.toggle("hidden",Boolean(me.super_administrateur));
       toast(active ? "Société archivée (données conservées)." : "Société réactivée.", "ok");
       RENDER.administration(); } catch (e) { toast(e.message, "ko"); }
   });
@@ -7382,6 +7389,8 @@ RENDER.administration = async () => {
       sel.innerHTML = societes.map((x) => `<option value="${x.id}">${esc(Catalogue.label(x))}</option>`).join("");
       if (!societes.find((x) => x.id === currentSocieteId)) currentSocieteId = societes[0] && societes[0].id;
       sel.value = currentSocieteId;
+  sel.classList.toggle("hidden",Boolean(me.super_administrateur));
+  $("#pilotage-alertes").classList.toggle("hidden",Boolean(me.super_administrateur));
       toast("Société supprimée.", "ok"); RENDER.administration(); } catch (e) { toast(e.message, "ko"); }
   });
   // ── Agents : modifier l'identité ──
@@ -7443,6 +7452,8 @@ function adminSocieteEditModal(s) {
       const sel = $("#societe-select");
       sel.innerHTML = societes.map((x) => `<option value="${x.id}">${esc(Catalogue.label(x))}</option>`).join("");
       sel.value = currentSocieteId;
+  sel.classList.toggle("hidden",Boolean(me.super_administrateur));
+  $("#pilotage-alertes").classList.toggle("hidden",Boolean(me.super_administrateur));
       closeModal(); toast("Société modifiée.", "ok"); RENDER.administration();
     } catch (e) { toast(e.message, "ko"); }
   };
@@ -7512,6 +7523,8 @@ function adminSocieteModal() {
       const sel = $("#societe-select");
       sel.innerHTML = societes.map((x) => `<option value="${x.id}">${esc(Catalogue.label(x))}</option>`).join("");
       sel.value = currentSocieteId;
+  sel.classList.toggle("hidden",Boolean(me.super_administrateur));
+  $("#pilotage-alertes").classList.toggle("hidden",Boolean(me.super_administrateur));
       closeModal(); toast(`Société ${s.nom} créée — plan comptable et caisse principale prêts.`, "ok");
       RENDER.administration();
     } catch (e) { toast(e.message, "ko"); }
@@ -7623,6 +7636,7 @@ RHMensuel.init();
 RHFinances.init();
 Pilotage.init();
 AuditJournal.init();
+Systeme.init();
 Navigation.organiser();
 initWorkspace();
 ModuleUX.init();

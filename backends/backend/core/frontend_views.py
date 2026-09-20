@@ -13,7 +13,7 @@ from django.conf import settings as dj_settings
 from django.http import FileResponse, JsonResponse
 from rest_framework.views import APIView
 
-STATIC = dj_settings.FASTAPI_DIR / "static"
+STATIC = dj_settings.BASE_DIR.parent / "frontend" / "legacy"
 
 _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate",
              "Pragma": "no-cache", "Expires": "0"}

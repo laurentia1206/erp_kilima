@@ -1,14 +1,15 @@
 # Passation à l'équipe informatique — ERP KILIMA HOLDINGS sur Django
 
 > Bascule effectuée le 2026-08-14. Le backend de production est désormais
-> **Django 5.1 + Django REST Framework 3.15** (`backend_django/`). L'ancien
-> backend FastAPI (`backend/`) est **archivé** : il reste dans le dépôt comme
-> référence, mais ne doit plus évoluer.
+> **Django 5.1 + Django REST Framework 3.15** (`backend/`). Depuis le
+> regroupement du 20 septembre 2026, l'ancien moteur FastAPI est retiré.
+> Ce document décrit le portage initial ; les guides 17 à 22 détaillent
+> l'architecture et les réglages actuels.
 
 ## 1. Démarrer
 
 ```bash
-cd backend_django
+cd backend
 pip install django==5.1.4 djangorestframework==3.15.2 bcrypt python-jose
 python manage.py runserver 127.0.0.1:8000
 ```
@@ -29,7 +30,7 @@ Comptes de démonstration : `*@kilima.cd` / `demo1234`.
 | Secrets / config | `backend/.env` (non versionné — modèle : `backend/.env.example`) |
 | Frontend | `backend/static/` (vanilla JS, servi par `core/frontend_views.py`) |
 | Pièces jointes | `backend/uploads/` |
-| Modèles (≈65 tables) | `backend_django/core/models.py` |
+| Modèles (≈65 tables) | `backend/core/models.py` |
 | Moteur comptable OHADA | `core/comptabilite.py` (post_ecriture : partie double D=C obligatoire) |
 | Règles métier pures | `core/domain.py` (devises, paliers de validation, avances) |
 | Services transverses | `core/services.py` (numérotation, paramètres, taux, audit, horodatages) |
@@ -81,9 +82,9 @@ attendent :
 
 ## 5. Tests et preuve de parité
 
-- La suite pytest historique (89 tests) vit dans `backend/tests/` et cible
-  l'API — elle reste exécutable contre Django puisque les URL et les JSON
-  sont identiques.
+- La suite Django active vit dans `backend/core/tests/` ; les tests JavaScript
+  de l'interface sont dans `backend/tests/`. La suite pytest historique
+  FastAPI a été retirée avec l'ancien moteur.
 - Chaque phase du portage a été validée par des bancs de parité
   (mêmes appels rejoués sur FastAPI et Django, réponses et bases comparées) :
   détail phase par phase dans `docs/06-plan-portage-django.md`.
@@ -99,10 +100,9 @@ fois les tables seront réellement créées), transférer les données, restrein
 
 ## 7. L'archive FastAPI
 
-`backend/app/` ne sert plus (le lanceur pointe Django ; FastAPI reste
-démarrable sur le port 8010 via la config « Archive FastAPI » pour
-comparaison). Quand l'équipe sera à l'aise, le dossier `backend/app/` et
-`backend/tests/` pourront être supprimés **par un commit git** (l'historique
-les conservera). Attention : `backend/` contient aussi la base, les
-sauvegardes, les uploads et le frontend — ne supprimer que `app/` et
-`tests/`, pas le dossier entier.
+L'ancien code FastAPI et ses lanceurs ont été retirés du projet actif le
+20 septembre 2026. Une archive de sécurité locale a été conservée dans
+`.build/ancien-backend-fastapi-avant-regroupement.zip` ; elle n'est pas
+distribuée avec le projet. Les documents, configurations, sauvegardes et
+la base historique ont été transférés sans modification dans le backend Django.
+Le dossier `backend/tests/` contient désormais les tests JavaScript actifs.

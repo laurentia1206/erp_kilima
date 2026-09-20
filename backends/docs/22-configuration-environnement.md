@@ -38,12 +38,16 @@ La variable `KILIMA_DB` remplace `DATABASE_URL` : la retirer du service de produ
 | `ENVIRONMENT` | `dev`, `development` ou `test` en local ; `production` pour l'hébergement |
 | `DEBUG` | Affichage des erreurs détaillées ; obligatoire à `false` en production |
 | `ALLOWED_HOSTS` | Noms DNS ou adresses IP autorisés, séparés par des virgules, sans protocole ni port |
-| `DATABASE_URL` | Connexion SQLite ou PostgreSQL |
+| `DATABASE_URL` | Connexion SQLite, PostgreSQL ou MySQL (voir limite MySQL ci-dessous) |
 | `KILIMA_DB` | Remplacement prioritaire de la connexion, notamment pour la recette |
-| `DB_TIMEOUT_SECONDS` | Attente de verrou SQLite ou délai de connexion PostgreSQL, entier positif, défaut 20 |
-| `DB_CONN_MAX_AGE` | Durée de réutilisation des connexions PostgreSQL en secondes, défaut 60 ; 0 désactive la réutilisation |
+| `DB_TIMEOUT_SECONDS` | Attente de verrou SQLite ou délai de connexion PostgreSQL/MySQL, entier positif, défaut 20 |
+| `DB_CONN_MAX_AGE` | Durée de réutilisation des connexions PostgreSQL/MySQL en secondes, défaut 60 ; 0 désactive la réutilisation |
 | `DB_SSLMODE` | Mode SSL PostgreSQL, dont `require` ou `verify-full` selon l'hébergeur |
 | `DB_SSLROOTCERT` | Chemin du certificat d'autorité PostgreSQL ; vide pour le comportement standard du pilote |
+| `DB_MYSQL_SSL_MODE` | MySQL seulement : `DISABLED`, `PREFERRED`, `REQUIRED` (défaut), `VERIFY_CA`, `VERIFY_IDENTITY` |
+| `DB_MYSQL_SSL_CA` | Certificat d'autorité MySQL, requis avec `VERIFY_CA` ou `VERIFY_IDENTITY` |
+| `DB_MYSQL_SSL_CERT` | Certificat client MySQL facultatif, à fournir avec sa clé |
+| `DB_MYSQL_SSL_KEY` | Clé privée du certificat client MySQL, à fournir avec le certificat |
 | `SECRET_KEY` | Clé de signature des sessions ; aléatoire et au moins 50 caractères en production |
 | `ALGORITHM` | Signature JWT : `HS256` par défaut, ou `HS384`, `HS512` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Durée de validité des sessions, entier positif, défaut 720 minutes |
@@ -62,6 +66,7 @@ Les booléens acceptent `true`/`false`, `1`/`0` et `yes`/`no`.
 Les options PostgreSQL `sslmode`, `sslrootcert` et `connect_timeout` peuvent aussi
 figurer dans l'URL ; les variables correspondantes explicites sont prioritaires.
 Les options inconnues sont refusées pour éviter une configuration silencieusement ignorée.
+Pour MySQL, utiliser les variables `DB_MYSQL_*`, sans options dans l'URL.
 
 ## Connexion à la base
 
@@ -87,6 +92,47 @@ Changer `DATABASE_URL` ne transfère aucune donnée. La reprise sur PostgreSQL,
 les migrations, les déclencheurs d'audit, les pièces jointes et la restauration
 doivent être vérifiés avant de basculer l'exploitation. Aucun serveur PostgreSQL
 Sygma Cloud n'a été connecté ni validé lors de cette préparation.
+
+### Configuration MySQL préparée — compatibilité métier à terminer
+
+Les trois fichiers `.env`, `.env.example` et `.env.production.example` contiennent
+désormais des blocs PostgreSQL et MySQL commentés. Pour préparer un changement,
+**remplacer l'unique ligne `DATABASE_URL` active**, puis activer les options du
+moteur choisi. Ne pas cumuler plusieurs lignes actives de même nom.
+
+Exemple MySQL (identifiants fictifs) :
+
+```dotenv
+DATABASE_URL=mysql://kilima:MOT_DE_PASSE@serveur-mysql:3306/kilima_erp
+DB_TIMEOUT_SECONDS=20
+DB_CONN_MAX_AGE=60
+DB_MYSQL_SSL_MODE=VERIFY_IDENTITY
+DB_MYSQL_SSL_CA=/etc/kilima/mysql-ca.crt
+DB_MYSQL_SSL_CERT=
+DB_MYSQL_SSL_KEY=
+```
+
+Le connecteur Django prépare l'encodage `utf8mb4`, le mode strict et l'isolation
+`read committed`. PostgreSQL utilise le port 5432 par défaut ; MySQL, 3306.
+Les options SSL PostgreSQL ne sont pas transmises au pilote MySQL.
+Pour un serveur MySQL local de développement sans TLS, choisir explicitement
+`DB_MYSQL_SSL_MODE=DISABLED` et laisser les chemins de certificats vides.
+
+Le pilote MySQL est optionnel, pour conserver l'installation SQLite actuelle :
+depuis la racine du projet, exécuter `python -m pip install -r backend/requirements-mysql.txt`.
+Selon le système, son installation peut nécessiter les bibliothèques clientes natives.
+Le choix de `mysqlclient` et du mode strict suit la
+[documentation Django](https://docs.djangoproject.com/en/5.1/ref/databases/#mysql-db-api-drivers) ;
+les options TLS sont celles du
+[pilote mysqlclient](https://github.com/PyMySQL/mysqlclient/blob/main/src/MySQLdb/connections.py).
+
+**La configuration MySQL ne rend pas encore l'ERP exploitable sur MySQL.**
+Les migrations d'audit (`core/migrations/_audit_schema_v1.py`) n'acceptent
+actuellement que SQLite et PostgreSQL. Il faut porter les déclencheurs et le
+contexte d'audit, vérifier les autres migrations et requêtes SQL, puis tester
+les circuits métier sur une base MySQL isolée avant une bascule. Aucun mécanisme
+d'audit n'a été supprimé ou contourné. Aucun serveur MySQL n'a été connecté ici ;
+seule la construction et la validation de sa configuration sont testées.
 
 ## À préparer avec l'informaticien / Sygma Cloud
 
@@ -123,5 +169,5 @@ restent dans l'application et dans sa base, pas dans le `.env`.
 
 Le français et le fuseau `Africa/Lubumbashi` restent ceux de l'installation.
 La gestion historique des dates est conservée. Lire aussi la section production
-de `backend_django/README.md` avant tout déploiement, notamment la mise à niveau
+de `backend/README.md` avant tout déploiement, notamment la mise à niveau
 du moteur Django actuellement installé.

@@ -84,7 +84,7 @@ Le contrat HTTP précédent est enregistré dans `core/tests/api_contract.json`.
 Les scénarios métier existants continuent de vérifier les écritures,
 les validations, l’atomicité et l’isolation entre sociétés.
 
-Depuis `backend_django/` :
+Depuis `backend/` :
 
 ```powershell
 python manage.py test --settings=kilima.test_settings

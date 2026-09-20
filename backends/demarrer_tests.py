@@ -25,14 +25,18 @@ def main():
     if not configuration.exists():
         # Une nouvelle clé invalide les anciennes sessions sans changer les comptes.
         with configuration.open('x', encoding='utf-8') as stream:
-            stream.write('APP_NAME=ERP KILIMA HOLDINGS\nENVIRONMENT=dev\n'
-                         'DATABASE_URL=sqlite:///../data/kilima_test.db\n'
-                         'SECRET_KEY=' + secrets.token_urlsafe(64) + '\n'
-                         'ALGORITHM=HS256\nACCESS_TOKEN_EXPIRE_MINUTES=720\n')
+            template = (root / 'backend/.env.example').read_text(encoding='utf-8')
+            lines = template.splitlines()
+            lines = [('SECRET_KEY=' + secrets.token_urlsafe(64)) if line.startswith('SECRET_KEY=')
+                     else ('DATABASE_URL=sqlite:///' + db.as_posix()) if line.startswith('DATABASE_URL=')
+                     else line for line in lines]
+            stream.write('\n'.join(lines) + '\n')
     env = {**os.environ, 'KILIMA_DB': 'sqlite:///' + str(db),
            'ENVIRONMENT': 'dev', 'DEBUG': 'true', 'BACKUP_ON_STARTUP': 'false',
-           'ALLOWED_HOSTS': 'localhost,127.0.0.1,[::1]', 'SECURE_SSL_REDIRECT': 'false'}
-    directory = root / 'backend_django'
+           'ALLOWED_HOSTS': 'localhost,127.0.0.1,[::1]', 'SECURE_SSL_REDIRECT': 'false',
+           'KILIMA_ENV_FILE': str(configuration), 'TRUST_PROXY_HTTPS': 'false',
+           'SECURE_HSTS_SECONDS': '0'}
+    directory = root / 'backend'
     commands = [['check'], ['migrate', '--check']]
     if not args.verifier:
         commands.append(['runserver', f'127.0.0.1:{args.port}', '--noreload'])

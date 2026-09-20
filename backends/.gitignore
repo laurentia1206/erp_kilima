@@ -10,10 +10,17 @@ backend/uploads/
 
 # Secrets
 backend/.env
+.env
+.env.*
+!.env.example
+!.env.production.example
 
 # Outillage local (conversion de documents, etc.)
 .build/
 node_modules/
+.next/
+frontend/public/legacy/
+*.tsbuildinfo
 .venv/
 livrables/
 data/*.db

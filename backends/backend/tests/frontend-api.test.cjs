@@ -5,7 +5,7 @@ const {readFileSync} = require('node:fs');
 const {join} = require('node:path');
 const vm = require('node:vm');
 
-const source = readFileSync(join(__dirname, '../../backend/static/app.js'), 'utf8');
+const source = readFileSync(join(__dirname, '../../frontend/legacy/app.js'), 'utf8');
 const apiSource = source.slice(source.indexOf('async function api('), source.indexOf('\nfunction toast('));
 function setup(fetch) {
   const context = vm.createContext({fetch, URLSearchParams,

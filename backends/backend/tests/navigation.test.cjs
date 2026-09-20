@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const {readFileSync}=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
-const script=readFileSync(path.join(__dirname,'../../backend/static/navigation.js'),'utf8');
+const script=readFileSync(path.join(__dirname,'../../frontend/legacy/navigation.js'),'utf8');
 function cls(){const s=new Set();return {contains:x=>s.has(x),toggle:(x,v)=>{if(v)s.add(x);else s.delete(x);}};}
 function group(name,views){
  const g={classList:cls()},h={dataset:{toggle:name},textContent:name,expanded:null,setAttribute:(k,v)=>h.expanded=v,closest:()=>g};
@@ -30,7 +30,7 @@ test('un menu partagé garde le module depuis lequel il a été choisi',()=>{
  assert.equal(gs.flatMap(g=>g.items).filter(n=>n.classList.contains('active')).length,1);
 });
 test('réorganisation conserve les routes et droits, RH précède les réglages',()=>{
- const source=readFileSync(path.join(__dirname,'../../backend/static/app.js'),'utf8');
+ const source=readFileSync(path.join(__dirname,'../../frontend/legacy/app.js'),'utf8');
  const c=vm.createContext({TITLES:{}});vm.runInContext(source.slice(source.indexOf('const NAV = ['),source.indexOf('function renderSidebar()'))+'\nNAV.push({g:"Ressources humaines",roles:["RH"],items:[{v:"rh",l:"Agents",roles:["RH"]}]});this.groups=NAV;',c);
  const before=c.groups.flatMap(g=>g.items.map(x=>JSON.stringify([x.v,x.roles]))).sort();
  vm.runInContext(script+';Navigation.organiser();',c);

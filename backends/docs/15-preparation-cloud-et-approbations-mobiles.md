@@ -57,7 +57,7 @@ Le prestataire technique ne doit pas décider seul des rôles financiers ou des 
 
 ## 4. État technique vérifié dans le projet
 
-- Moteur actif : `backend_django/`, Django REST Framework ; interface commune dans `backend/static/`. Le moteur FastAPI historique n’est pas celui à déployer.
+- Moteur actif : `backend/`, Django REST Framework ; interface commune dans `backend/static/`. Le moteur FastAPI historique n’est pas celui à déployer.
 - Versions figées actuellement : Django 5.1.4, DRF 3.15.2. Django 5.1 n’est plus maintenu. Qualifier une mise à niveau vers la dernière correction disponible de Django 5.2 LTS et des dépendances compatibles avant exposition publique. [Versions officielles Django](https://www.djangoproject.com/download/).
 - Installation locale de test : SQLite. Le paramétrage PostgreSQL existe, mais cela ne prouve pas que la migration des données et tous les traitements ont été validés sur PostgreSQL.
 - Pièces jointes : `backend/uploads/`, à conserver sur un volume persistant protégé et à sauvegarder avec la base. Elles passent par des routes applicatives contrôlées ; ne pas exposer ce répertoire comme des fichiers publics.

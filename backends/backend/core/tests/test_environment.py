@@ -47,11 +47,41 @@ class EnvironmentTests(SimpleTestCase):
         self.assertEqual(db["OPTIONS"]["sslrootcert"], str(Path.cwd() / "ca.crt"))
 
     def test_bad_database_urls_fail_without_leaking_credentials(self):
-        for url in ["mysql://agent:secret@db/kilima", "postgresql://agent:secret@db:bad/kilima",
+        for url in ["oracle://agent:secret@db/kilima", "postgresql://agent:secret@db:bad/kilima",
+                    "mysql://agent:secret@db:0/kilima", "mysql://agent:secret@db/kilima?sslmode=disable",
                     "postgresql://agent:secret@db/kilima?unknown=1", "sqlite:///"]:
             with self.assertRaises(ImproperlyConfigured) as error:
                 database({"DATABASE_URL": url}, Path.cwd())
             self.assertNotIn("secret", str(error.exception))
+
+    def test_mysql_connection_uses_its_own_ssl_options(self):
+        db = database({"DATABASE_URL": "mysql://agent:p%40ss%23@mysql.example/kilima",
+                       "DB_SSLMODE": "verify-full", "DB_SSLROOTCERT": "postgres-ca.crt",
+                       "DB_MYSQL_SSL_MODE": "VERIFY_IDENTITY", "DB_MYSQL_SSL_CA": "mysql-ca.crt",
+                       "DB_MYSQL_SSL_CERT": "client.crt", "DB_MYSQL_SSL_KEY": "client.key",
+                       "DB_TIMEOUT_SECONDS": "15", "DB_CONN_MAX_AGE": "30"}, Path.cwd())
+        self.assertEqual(db["ENGINE"], "django.db.backends.mysql")
+        self.assertEqual(db["PORT"], 3306)
+        self.assertEqual(db["PASSWORD"], "p@ss#")
+        self.assertEqual(db["CONN_MAX_AGE"], 30)
+        self.assertEqual(db["OPTIONS"], {
+            "charset": "utf8mb4", "sql_mode": "STRICT_TRANS_TABLES", "isolation_level": "read committed",
+            "ssl_mode": "VERIFY_IDENTITY", "connect_timeout": 15,
+            "ssl": {"ca": str(Path.cwd() / "mysql-ca.crt"), "cert": str(Path.cwd() / "client.crt"),
+                    "key": str(Path.cwd() / "client.key")}})
+
+    def test_mysql_default_and_custom_port(self):
+        db = database({"DATABASE_URL": "mysql://agent:pwd@localhost:3307/kilima"}, Path.cwd())
+        self.assertEqual(db["PORT"], 3307)
+        self.assertEqual(db["OPTIONS"]["ssl_mode"], "REQUIRED")
+
+    def test_mysql_rejects_incomplete_or_conflicting_tls_settings(self):
+        for extra in [{"DB_MYSQL_SSL_MODE": "verify-full"},
+                      {"DB_MYSQL_SSL_MODE": "VERIFY_IDENTITY"},
+                      {"DB_MYSQL_SSL_CERT": "client.crt"},
+                      {"DB_MYSQL_SSL_MODE": "DISABLED", "DB_MYSQL_SSL_CA": "ca.crt"}]:
+            with self.assertRaises(ImproperlyConfigured):
+                database({"DATABASE_URL": "mysql://agent:pwd@localhost/kilima", **extra}, Path.cwd())
 
     def load_settings(self, env):
         spec = importlib.util.find_spec("kilima.settings")

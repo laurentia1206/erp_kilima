@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const path=require('node:path');
-const code=fs.readFileSync(path.join(__dirname,'../../backend/static/pilotage.js'),'utf8');
+const code=fs.readFileSync(path.join(__dirname,'../../frontend/legacy/pilotage.js'),'utf8');
 const c=vm.createContext({});vm.runInContext(code+';globalThis.filtrer=Pilotage.filtrer',c);
 test('Les filtres de suivi croisent responsable, module et priorité sans doubler les équipes',()=>{
  const rows=[{reference:'REQ-1',action:'Valider',detail:'',module:'Réquisitions',niveau:'relance',roles:['DFI'],responsables:[{id:'a',nom:'André'},{id:'b',nom:'Béatrice'}]},

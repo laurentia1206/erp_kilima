@@ -7,7 +7,7 @@ const path=require('node:path');
 function contexte(me){
   const ctx={me,NAV:[{g:'Stocks & inventaires',items:[{v:'articles'}]},{g:'Ressources humaines',items:[{v:'rh'}]}]};
   vm.createContext(ctx);
-  vm.runInContext(fs.readFileSync(path.join(__dirname,'../../backend/static/systeme.js'),'utf8')+'\nthis.systeme=Systeme;',ctx);
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../../frontend/legacy/systeme.js'),'utf8')+'\nthis.systeme=Systeme;',ctx);
   return ctx;
 }
 test('les limites masquent le module sans masquer les modules autorisés',()=>{

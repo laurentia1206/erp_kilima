@@ -10,17 +10,17 @@ l’organisation est expliquée dans `docs/19-model-viewsets.md`.
 ## Reprendre les tests sur un autre ordinateur Windows
 
 1. Extraire **tout le ZIP** dans un dossier local.
-2. Installer Python **3.12** avec son lanceur Windows `py`.
+2. Installer Python **3.12** avec son lanceur Windows `py`, puis **Node.js 24 LTS**.
 3. Ouvrir `Installer-Windows.bat`. Une connexion Internet est nécessaire pour
-   télécharger les dépendances déclarées dans `backend_django/requirements.txt`.
-4. Ouvrir `Demarrer-tests.bat` et garder sa fenêtre ouverte.
-5. Aller sur **http://127.0.0.1:8012/** et utiliser les mêmes comptes et mots
+   télécharger les dépendances Python et celles du frontend Next.js.
+4. Ouvrir `Demarrer-Next.bat` (ou `Demarrer-tests.bat`) et garder sa fenêtre ouverte.
+5. Aller sur **http://127.0.0.1:3000/** et utiliser les mêmes comptes et mots
    de passe que dans les tests actuels.
 
-Si le port 8012 est déjà occupé, arrêter l’autre serveur ou utiliser :
+Si le port 3000 est déjà occupé, ouvrir le serveur existant ou utiliser :
 
 ```powershell
-.venv\Scripts\python.exe demarrer_tests.py --port 8013
+.venv\Scripts\python.exe demarrer_next.py --port 3002
 ```
 
 La clé technique de l’installation d’origine n’est pas fournie. Au premier
@@ -32,13 +32,14 @@ Le lanceur refuse de créer une base vide si le fichier attendu manque.
 
 | Emplacement | Contenu |
 |---|---|
-| `backend_django/` | Serveur actif Django, applications métier, migrations et tests |
-| `backend/static/` | Interface HTML, CSS et JavaScript |
+| `backend/` | Serveur actif Django, applications métier, migrations et tests |
+| `frontend/` | Frontend Next.js, React et TypeScript |
+| `frontend/legacy/` | Écrans métier conservés pendant leur conversion progressive en React |
 | `backend/uploads/` | Pièces jointes stockées sur disque |
 | `data/kilima_test.db` | Copie cohérente de la base de tests actuelle, migrations appliquées |
 | `data/base_historique.db` | Copie de conservation de la base historique, sans réorganisation appliquée |
 | `docs/` | Guides fonctionnels, architecture et préparation de l’hébergement |
-| `backend/app/`, `backend/scripts/`, `backend/tests/` | Ancien moteur FastAPI et ses outils, conservés comme sources historiques |
+| `backend/core/tests/`, `backend/tests/` | Tests Django et tests JavaScript de l'interface |
 | `database/` | Scripts SQL historiques ; ne pas les exécuter sur les bases fournies |
 | `MANIFESTE-SHA256.txt` | Empreintes permettant de vérifier les fichiers extraits |
 
@@ -54,6 +55,23 @@ Faire des sauvegardes régulières de la base de tests et de `backend/uploads/`.
 
 ## Pour l’informaticien
 
+La migration du frontend est décrite dans `docs/23-frontend-nextjs.md` et
+`frontend/README.md`. La connexion, la navigation, l’accueil, le suivi des tâches,
+le journal d'audit, l'état du stock, les taux de change, les articles et les chambres sont en React ; les
+autres écrans restent intégrés via une couche de transition. Django
+conserve l’API sur le port 8012 ; Next.js fournit l’interface sur le port 3000.
+
+
+Les modèles `backend/.env.example` et `backend/.env.production.example`
+regroupent la configuration locale et celle de l'hébergement PostgreSQL/HTTPS.
+Consulter `docs/22-configuration-environnement.md` pour les paramètres et les
+informations à demander à l'hébergeur. Le fichier privé `.env` est exclu du ZIP.
+
+La super administration et les permissions sont décrites dans
+`docs/21-super-administration-permissions.md`. Les identifiants provisoires du
+compte global sont transmis séparément ; son mot de passe provisoire n'est pas
+inclus dans cette archive.
+
 Le journal est accessible dans **Pilotage → Journal de traçabilité** aux DFI
 et administrateurs autorisés. Consulter `docs/20-journal-audit.md` pour sa
 couverture, les exports, les protections et les précautions de maintenance.
@@ -66,17 +84,17 @@ Les documents RH stockés dans la base sont inclus dans sa copie.
 Pour vérifier l’installation sans lancer le serveur :
 
 ```powershell
-.venv\Scripts\python.exe demarrer_tests.py --verifier
+.venv\Scripts\python.exe demarrer_next.py --verifier
 ```
 
-Pour les tests automatiques, depuis `backend_django/` :
+Pour les tests automatiques, depuis `backend/` :
 
 ```powershell
 ..\.venv\Scripts\python.exe manage.py test --settings=kilima.test_settings
-node --test tests/frontend-api.test.cjs tests/module-ux.test.cjs tests/navigation.test.cjs tests/pilotage.test.cjs
+node --test tests/frontend-api.test.cjs tests/module-ux.test.cjs tests/navigation.test.cjs tests/pilotage.test.cjs tests/systeme.test.cjs
 ```
 
-Node.js est nécessaire uniquement pour les tests JavaScript. Les tests Django
+Node.js est nécessaire pour le frontend Next.js et les tests JavaScript. Les tests Django
 utilisent une base en mémoire. Le serveur fourni est destiné aux tests locaux ;
 la préparation de la production est décrite dans
 `docs/15-preparation-cloud-et-approbations-mobiles.md`.

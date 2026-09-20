@@ -1,5 +1,9 @@
 # Dossier technique — ERP KILIMA HOLDINGS
 
+> Document historique du portage. Depuis le 20 septembre 2026, seul Django
+> est livré dans `backend/` ; les anciens scripts et lanceurs FastAPI ont été retirés.
+> Pour installer et démarrer la version actuelle, suivre `LIRE-MOI.md` à la racine.
+
 > À destination de l'équipe informatique pour la reprise et le déploiement.
 > État au 2026-07-24 · 89 tests d'intégration passants.
 

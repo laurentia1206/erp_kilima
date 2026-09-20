@@ -1,8 +1,8 @@
 # Architecture Django par domaine métier
 
-Le moteur actif est dans `backend_django/`. L’interface reste dans
-`backend/static/`. `backend/app/` conserve l’ancienne implémentation FastAPI
-à titre historique ; ce n’est pas le serveur utilisé.
+Le moteur actif est dans `backend/`, avec l'interface Next.js dans `frontend/`,
+les pièces jointes dans `backend/uploads/` et les fichiers `.env` à sa racine.
+L'ancien moteur FastAPI a été retiré du projet actif le 20 septembre 2026.
 
 ## Applications
 
@@ -63,7 +63,7 @@ Les anciens types de contenu restent présents ; aucune suppression automatique.
 
 Ne pas supprimer les migrations historiques, utiliser `--fake`, ou recréer
 la base pour cette transition. Vérifier `KILIMA_DB` / `DATABASE_URL`,
-sauvegarder la base ciblée puis, depuis `backend_django/` :
+sauvegarder la base ciblée puis, depuis `backend/` :
 
 ```powershell
 python manage.py migrate --plan

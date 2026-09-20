@@ -1,5 +1,9 @@
 # Plan de portage vers Django — ERP KILIMA HOLDINGS
 
+> Document historique du portage. Depuis le 20 septembre 2026, seul Django
+> est livré dans `backend/` ; les anciens scripts et lanceurs FastAPI ont été retirés.
+> Pour installer et démarrer la version actuelle, suivre `LIRE-MOI.md` à la racine.
+
 > Décision de Laurent (2026-07-24) : l'équipe informatique maîtrise Django, pas FastAPI.
 > Le backend est porté vers **Django 5 + Django REST Framework** par Claude.
 
@@ -18,7 +22,7 @@
 ## Architecture cible
 
 ```
-backend_django/
+backend/
   manage.py
   kilima/            # projet (settings, urls, wsgi)
   core/              # auth JWT custom (table utilisateur existante, bcrypt),

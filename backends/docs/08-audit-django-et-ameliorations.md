@@ -175,5 +175,5 @@ pour cette intervention.
 
 Les changements sont dans les fichiers du projet, sans publication externe,
 sans modification de l'archive FastAPI et sans application des migrations à la
-base de travail. Voir `../backend_django/README.md` pour les commandes de
+base de travail. Voir `../backend/README.md` pour les commandes de
 vérification et d'utilisation de l'installation Django existante.

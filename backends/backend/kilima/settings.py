@@ -1,5 +1,5 @@
-"""Configuration du moteur Django actif ; les données et assets restent
-dans backend/ pour préserver l'installation existante. Django gère le schéma.
+"""Configuration du moteur Django ; code, données, assets et configuration
+sont regroupés dans backend/. Django gère le schéma.
 Les variables du système ont priorité sur le fichier backend/.env.
 """
 from __future__ import annotations
@@ -9,11 +9,10 @@ from pathlib import Path
 from django.core.exceptions import ImproperlyConfigured
 from .environment import read_env, boolean, integer, directory, database
 
-BASE_DIR = Path(__file__).resolve().parent.parent          # backend_django/
-FASTAPI_DIR = BASE_DIR.parent / "backend"                   # backend/ (existant)
+BASE_DIR = Path(__file__).resolve().parent.parent          # backend/
 
 
-ENV_FILE = directory(os.environ.get("KILIMA_ENV_FILE", ".env"), FASTAPI_DIR)
+ENV_FILE = directory(os.environ.get("KILIMA_ENV_FILE", ".env"), BASE_DIR)
 if os.environ.get("KILIMA_ENV_FILE") and not ENV_FILE.is_file():
     raise ImproperlyConfigured("Le fichier désigné par KILIMA_ENV_FILE est introuvable.")
 _ENV = {**read_env(ENV_FILE), **os.environ}
@@ -33,9 +32,9 @@ if PRODUCTION:
     if not ALLOWED_HOSTS or "*" in ALLOWED_HOSTS or not _ENV.get("ALLOWED_HOSTS"):
         raise ImproperlyConfigured("Définissez explicitement les ALLOWED_HOSTS de production, sans *.")
 BACKUP_ON_STARTUP = boolean(_ENV, "BACKUP_ON_STARTUP", True)
-BACKUP_DIR = directory(_ENV["BACKUP_DIR"], FASTAPI_DIR) if _ENV.get("BACKUP_DIR") else None
+BACKUP_DIR = directory(_ENV["BACKUP_DIR"], BASE_DIR) if _ENV.get("BACKUP_DIR") else None
 BACKUP_KEEP_COUNT = integer(_ENV, "BACKUP_KEEP_COUNT", 14, 1)
-UPLOADS_DIR = directory(_ENV.get("UPLOADS_DIR", "uploads"), FASTAPI_DIR)
+UPLOADS_DIR = directory(_ENV.get("UPLOADS_DIR", "uploads"), BASE_DIR)
 MAX_UPLOAD_MB = integer(_ENV, "MAX_UPLOAD_MB", 10, 1)
 ACCESS_TOKEN_EXPIRE_MINUTES = integer(_ENV, "ACCESS_TOKEN_EXPIRE_MINUTES", 720, 1)
 if JWT_ALGORITHM not in {"HS256", "HS384", "HS512"}:
@@ -88,7 +87,7 @@ TEMPLATES = [{
 # Base conservée à son emplacement historique.
 # KILIMA_DB (variable d'environnement) permet de pointer une COPIE pour les
 # tests d'écriture sans toucher aux données réelles.
-DATABASES = {"default": database(_ENV, FASTAPI_DIR)}
+DATABASES = {"default": database(_ENV, BASE_DIR)}
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["core.auth.JWTAuthentication"],

@@ -58,14 +58,41 @@ def database(env, base):
                 "OPTIONS": {"timeout": integer(env, "DB_TIMEOUT_SECONDS", 20, 1)}}
     try:
         parsed = urlsplit(url)
-        port = parsed.port or 5432
+        port = parsed.port
     except ValueError:
         raise ImproperlyConfigured("DATABASE_URL : adresse ou port invalide.") from None
-    if parsed.scheme not in {"postgresql", "postgres", "postgresql+psycopg"}:
-        raise ImproperlyConfigured("DATABASE_URL doit utiliser SQLite ou PostgreSQL.")
+    if parsed.scheme not in {"postgresql", "postgres", "postgresql+psycopg", "mysql"}:
+        raise ImproperlyConfigured("DATABASE_URL doit utiliser SQLite, PostgreSQL ou MySQL.")
+    if port == 0:
+        raise ImproperlyConfigured("DATABASE_URL : le port doit être compris entre 1 et 65535.")
     if not parsed.path.lstrip("/") or not parsed.hostname or not parsed.username or parsed.fragment:
         raise ImproperlyConfigured("DATABASE_URL : précisez utilisateur, serveur et base ; encodez les caractères réservés.")
     options = dict(parse_qsl(parsed.query))
+    if parsed.scheme == "mysql":
+        if options:
+            raise ImproperlyConfigured("MySQL : utilisez les variables DB_MYSQL_* pour les options, sans paramètres dans DATABASE_URL.")
+        sslmode = env.get("DB_MYSQL_SSL_MODE", "REQUIRED").upper()
+        if sslmode not in {"DISABLED", "PREFERRED", "REQUIRED", "VERIFY_CA", "VERIFY_IDENTITY"}:
+            raise ImproperlyConfigured("DB_MYSQL_SSL_MODE : mode SSL MySQL invalide.")
+        ssl = {option: str(directory(env[key], base))
+               for key, option in [("DB_MYSQL_SSL_CA", "ca"), ("DB_MYSQL_SSL_CERT", "cert"), ("DB_MYSQL_SSL_KEY", "key")]
+               if env.get(key)}
+        if sslmode in {"VERIFY_CA", "VERIFY_IDENTITY"} and not ssl.get("ca"):
+            raise ImproperlyConfigured("DB_MYSQL_SSL_CA est requis pour vérifier le certificat du serveur.")
+        if bool(ssl.get("cert")) != bool(ssl.get("key")):
+            raise ImproperlyConfigured("DB_MYSQL_SSL_CERT et DB_MYSQL_SSL_KEY doivent être renseignés ensemble.")
+        if ssl and sslmode == "DISABLED":
+            raise ImproperlyConfigured("MySQL : les certificats SSL sont incompatibles avec le mode DISABLED.")
+        options = {"charset": "utf8mb4", "sql_mode": "STRICT_TRANS_TABLES",
+                   "isolation_level": "read committed", "ssl_mode": sslmode,
+                   "connect_timeout": integer(env, "DB_TIMEOUT_SECONDS", 20, 1)}
+        if ssl:
+            options["ssl"] = ssl
+        return {"ENGINE": "django.db.backends.mysql",
+                "NAME": unquote(parsed.path.lstrip("/")), "USER": unquote(parsed.username),
+                "PASSWORD": unquote(parsed.password or ""), "HOST": parsed.hostname, "PORT": port or 3306,
+                "CONN_MAX_AGE": integer(env, "DB_CONN_MAX_AGE", 60),
+                "CONN_HEALTH_CHECKS": True, "OPTIONS": options}
     if set(options) - {"sslmode", "sslrootcert", "connect_timeout"}:
         raise ImproperlyConfigured("DATABASE_URL : seuls sslmode, sslrootcert et connect_timeout sont acceptés en options.")
     sslmode = env.get("DB_SSLMODE") or options.get("sslmode", "prefer")
@@ -78,6 +105,6 @@ def database(env, base):
         options["sslrootcert"] = str(directory(env["DB_SSLROOTCERT"], base))
     return {"ENGINE": "django.db.backends.postgresql",
             "NAME": unquote(parsed.path.lstrip("/")), "USER": unquote(parsed.username),
-            "PASSWORD": unquote(parsed.password or ""), "HOST": parsed.hostname, "PORT": port,
+            "PASSWORD": unquote(parsed.password or ""), "HOST": parsed.hostname, "PORT": port or 5432,
             "CONN_MAX_AGE": integer(env, "DB_CONN_MAX_AGE", 60),
             "CONN_HEALTH_CHECKS": True, "OPTIONS": options}

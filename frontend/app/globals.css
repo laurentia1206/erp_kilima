@@ -1,0 +1,66 @@
+@import '../legacy/styles.css';
+@import '../legacy/workspace.css';
+@import '../legacy/module-ux.css';
+@import '../legacy/catalogue.css';
+@import '../legacy/clotures.css';
+@import '../legacy/rh.css';
+@import '../legacy/editions.css';
+@import '../legacy/pilotage.css';
+@import '../legacy/audit.css';
+@import '../legacy/systeme.css';
+
+.startup-error { max-width: 620px; margin: 10vh auto; padding: 32px; background: white; border-radius: 16px; }
+.startup-error p { margin: 16px 0; }
+.login-box form .btn { width: 100%; justify-content: center; }
+.next-login-state { margin-top: 12px; color: var(--text2); }
+.next-runtime-status { padding: 12px 22px; }
+.workspace-metric:disabled { cursor: default; opacity: 1; }
+.skip-link { position: fixed; top: -100px; left: 12px; z-index: 9999; background: white; padding: 12px; }
+.skip-link:focus { top: 12px; }
+.content:focus { outline: none; }
+.business-error { padding: 14px 18px; border-radius: 10px; background: #fff0ed; color: #913c31; border: 1px solid #e5b5ac; }
+.business-success { padding: 14px; background: #e8f6ee; color: #17634f; border-radius: 10px; }
+.business-toolbar, .business-pages { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 18px 0; }
+.business-toolbar label, .business-field { display: grid; gap: 8px; font-size: 13px; font-weight: 600; }
+.business-field { margin: 18px 0; }
+.business-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 18px; }
+.business-fieldset { border: 0; padding: 0; min-width: 0; }
+.business-check { display: flex !important; align-items: center; gap: 8px; margin: 12px 0; font-size: 13px; }
+.business-check input { flex: 0 0 auto; }
+.business-matches { padding: 14px; background: #f0f6f5; border-radius: 10px; display: grid; gap: 8px; }
+@media(max-width:600px) { .business-form-grid { grid-template-columns: 1fr; } }
+.business-pages { justify-content: flex-end; }
+.business-pages span { margin-right: auto; color: var(--text2); }
+.business-table { overflow: auto; }
+.business-table table { width: 100%; border-collapse: collapse; }
+.business-table td, .business-table th { padding: 14px; text-align: left; border-bottom: 1px solid #e4ebed; }
+.business-table th { background: #eaf1f2; color: #365364; }
+.business-table .right { text-align: right; white-space: nowrap; }
+.business-rate { max-width: 620px; }
+.business-dialog { position: fixed; margin: auto; padding: 0; width: min(1050px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); border: 1px solid #dce5e7; border-radius: 16px; background: white; color: var(--text); box-shadow: 0 20px 80px #152c4840; }
+.business-dialog::backdrop { background: #182b4b88; }
+.business-dialog > header, .business-dialog > footer { display: flex; align-items: center; gap: 12px; padding: 18px 24px; background: white; position: sticky; z-index: 1; }
+.business-dialog > header { top: 0; border-bottom: 1px solid #e4ebed; justify-content: space-between; }
+.business-dialog > header h2 { margin: 0; font-size: 20px; color: var(--p); }
+.business-dialog > footer { bottom: 0; justify-content: flex-end; flex-wrap: wrap; border-top: 1px solid #e4ebed; }
+.business-dialog-body { padding: 24px; }
+.business-dialog-body p { line-height: 1.6; margin-bottom: 14px; }
+.business-definition { display: contents; }
+.business-print header { color: var(--p); border-bottom: 3px solid var(--p); padding-bottom: 14px; }
+.business-print h2 { margin: 20px 0 12px; }
+@media (max-width: 600px) { .business-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); } .business-dialog-body { padding: 16px; } .business-dialog > header, .business-dialog > footer { padding: 14px 16px; } .business-table table { min-width: 650px; } }
+@media print {
+  body:has(.business-print) > * { display: none !important; }
+  body:has(.business-print) > #react-modal-root { display: block !important; }
+  /* Le portail se trouve dans l'enveloppe React ; conserver uniquement sa branche. */
+  body:has(.business-print) > :has(#react-modal-root) { display: block !important; }
+  body:has(.business-print) #app, body:has(.business-print) #login, body:has(.business-print) #modal-root, body:has(.business-print) #toast { display: none !important; }
+  .business-dialog:has(.business-print) { position: static; display: block; width: 100%; max-height: none; overflow: visible; margin: 0; border: 0; border-radius: 0; box-shadow: none; }
+  .business-dialog:has(.business-print) > header, .business-dialog:has(.business-print) > footer, .business-dialog:has(.business-print) .business-error { display: none; }
+  .business-dialog:has(.business-print)::backdrop { display: none; }
+  .business-dialog-body { padding: 0; }
+  .business-print .business-table { overflow: visible; }
+  .business-print table { min-width: 0; font-size: 9pt; }
+  .business-print tr { break-inside: avoid; }
+  .business-print th, .business-print td { padding: 6px; overflow-wrap: anywhere; }
+}
