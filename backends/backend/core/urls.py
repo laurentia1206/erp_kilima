@@ -1,0 +1,48 @@
+from django.urls import path, include
+from core import config_views as config_views
+from core import views as views
+from core.audit_views import AuditViewSet
+from core.admin_views import AdministrationSystemeViewSet
+
+urlpatterns = [
+    path('systeme/mot-de-passe', AdministrationSystemeViewSet.as_view({'post':'mot_de_passe'},http_method_names=['post','options'])),
+    path('systeme/utilisateurs', AdministrationSystemeViewSet.as_view({'get':'list'},http_method_names=['get','options'])),
+    path('systeme/utilisateurs/<uuid:utilisateur_id>', AdministrationSystemeViewSet.as_view({'get':'retrieve','patch':'partial_update'},http_method_names=['get','patch','options'])),
+    path('systeme/utilisateurs/<uuid:utilisateur_id>/statut', AdministrationSystemeViewSet.as_view({'post':'statut'},http_method_names=['post','options'])),
+    path('audit/journal', AuditViewSet.as_view({'get':'list'})),
+    path('audit/journal/<int:audit_id>', AuditViewSet.as_view({'get':'retrieve'})),
+    path('audit/export', AuditViewSet.as_view({'get':'exporter'})),
+    path('audit/protection', AuditViewSet.as_view({'get':'protection'})),
+    path("auth/login", views.LoginView.as_view()),
+    path("auth/me", views.MeView.as_view()),
+    path("societes", views.SocieteViewSet.as_view({'get': 'list'}, http_method_names=['get', 'options'], detail=False, basename='societe')),
+    path("tiers", views.TiersViewSet.as_view({'get': 'list'}, http_method_names=['get', 'options'], detail=False, basename='tiers')),
+    path("taux", views.TauxChangeViewSet.as_view({'post': 'create'}, http_method_names=['post', 'options'], detail=False, basename='taux_change')),
+    path("config/roles", config_views.RoleViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='role')),
+    path("config/roles/<uuid:role_id>", config_views.RoleViewSet.as_view({'patch': 'partial_update', 'delete': 'destroy'}, http_method_names=['patch', 'delete', 'options'], detail=True, basename='role')),
+    path("config/societes", config_views.SocieteViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='societe')),
+    path("config/societes/<uuid:societe_id>", config_views.SocieteViewSet.as_view({'patch': 'partial_update', 'delete': 'destroy'}, http_method_names=['patch', 'delete', 'options'], detail=True, basename='societe')),
+    path("config/paliers", config_views.PalierViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='palier')),
+    path("config/paliers/<uuid:palier_id>", config_views.PalierViewSet.as_view({'put': 'update', 'delete': 'destroy'}, http_method_names=['put', 'delete', 'options'], detail=True, basename='palier')),
+    path("config/parametres", config_views.ParametreViewSet.as_view({'get': 'list'}, http_method_names=['get', 'options'], detail=False, basename='parametre')),
+    path("config/parametres/<uuid:parametre_id>", config_views.ParametreViewSet.as_view({'put': 'update'}, http_method_names=['put', 'options'], detail=True, basename='parametre')),
+    path("config/intervenants", config_views.IntervenantViewSet.as_view({'get': 'list'}, http_method_names=['get', 'options'], detail=False, basename='intervenant')),
+    path("config/utilisateurs", config_views.UtilisateurViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='utilisateur')),
+    path("config/utilisateurs/<uuid:utilisateur_id>", config_views.UtilisateurViewSet.as_view({'patch': 'partial_update'}, http_method_names=['patch', 'options'], detail=True, basename='utilisateur')),
+    path("config/affectations", config_views.AffectationViewSet.as_view({'post': 'create', 'delete': 'destroy'}, http_method_names=['post', 'delete', 'options'], detail=False, basename='affectation')),
+    path("pieces-jointes", config_views.PieceJointeViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='piece_jointe')),
+    path("pieces-jointes/<uuid:piece_id>/download", config_views.PieceJointeViewSet.as_view({'get': 'download'}, http_method_names=['get', 'options'], detail=True, basename='piece_jointe')),
+    path("", include("apps.approbations.urls")),
+    path("", include("apps.tresorerie.urls")),
+    path("", include("apps.comptabilite.urls")),
+    path("", include("apps.stocks.urls")),
+    path("", include("apps.commercial.urls")),
+    path("", include("apps.hotel.urls")),
+    path("", include("apps.transport.urls")),
+    path("", include("apps.maintenance.urls")),
+    path("", include("apps.engins.urls")),
+    path("", include("apps.groupe.urls")),
+    path("", include("apps.rh.urls")),
+    path("", include("apps.pilotage.urls")),
+    path("", include("apps.editions.urls")),
+]
