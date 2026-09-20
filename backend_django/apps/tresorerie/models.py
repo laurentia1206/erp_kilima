@@ -17,7 +17,6 @@ class Caisse(models.Model):
         db_table = "caisse"
 
 
-
 class CompteBancaire(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     societe_id = models.UUIDField()
@@ -30,7 +29,6 @@ class CompteBancaire(models.Model):
     class Meta:
         managed = True
         db_table = "compte_bancaire"
-
 
 
 class SessionCaisse(models.Model):
@@ -55,7 +53,6 @@ class SessionCaisse(models.Model):
     class Meta:
         managed = True
         db_table = "session_caisse"
-
 
 
 class MouvementCaisse(models.Model):
@@ -85,7 +82,6 @@ class MouvementCaisse(models.Model):
         db_table = "mouvement_caisse"
 
 
-
 class Avance(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     numero = models.CharField(max_length=32, unique=True)
@@ -108,7 +104,6 @@ class Avance(models.Model):
         db_table = "avance"
 
 
-
 class Justification(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     numero = models.CharField(max_length=32, unique=True)
@@ -129,7 +124,6 @@ class Justification(models.Model):
         db_table = "justification"
 
 
-
 class JustificationLigne(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     justification_id = models.UUIDField()
@@ -148,7 +142,6 @@ class JustificationLigne(models.Model):
         db_table = "justification_ligne"
 
 
-
 class BlocageBeneficiaire(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     tiers_id = models.UUIDField()
@@ -163,7 +156,6 @@ class BlocageBeneficiaire(models.Model):
     class Meta:
         managed = True
         db_table = "blocage_beneficiaire"
-
 
 
 class Transfert(models.Model):

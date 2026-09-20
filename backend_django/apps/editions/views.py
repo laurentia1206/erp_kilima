@@ -1,4 +1,7 @@
 """Présentation des états déjà consultés : aucun calcul métier ni changement de statut."""
+
+from rest_framework.decorators import action
+from core.viewsets import MetierModelViewSet, MetierViewSet
 import io
 import re
 import math
@@ -8,7 +11,6 @@ from decimal import Decimal, InvalidOperation
 from xml.sax.saxutils import escape
 from django.http import HttpResponse
 from django.utils.http import content_disposition_header
-from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 from core.auth import assert_acces_societe
@@ -55,12 +57,6 @@ def normaliser(p):
 def identite(s):
     return {'nom':s.nom,'code':s.code,'ville':s.ville or '',
             'references':' · '.join(f'{label} : {v}' for label,v in [('RCCM',s.rccm),('ID. NAT.',s.id_nat),('NIF',s.nif)] if v)}
-
-
-@api_view(['GET'])
-def societe(request):
-    sid=ident(_societe_param(request));assert_acces_societe(request.user,sid)
-    return Response(identite(Societe.objects.get(id=sid)))
 
 
 def pdf(spec,soc):
@@ -206,14 +202,28 @@ def xlsx(spec,soc):
     output=io.BytesIO();wb.save(output);return output.getvalue()
 
 
-@api_view(['POST'])
-def telecharger(request):
-    sid=ident(_societe_param(request));assert_acces_societe(request.user,sid)
-    if len(request.body)>4000000: raise ValidationError('Document trop volumineux.')
-    spec=normaliser(request.data);soc=identite(Societe.objects.get(id=sid));fmt=request.data.get('format')
-    if fmt not in ['pdf','xlsx']: raise ValidationError('Format non pris en charge.')
-    data=pdf(spec,soc) if fmt=='pdf' else xlsx(spec,soc)
-    r=HttpResponse(data,content_type='application/pdf' if fmt=='pdf' else 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    nom=re.sub(r'[^\w .-]','',spec['titre'])[:100].strip() or 'Document'
-    r['Content-Disposition']=content_disposition_header(True,f'{nom}.{fmt}');r['Cache-Control']='private, no-store'
-    r['X-Content-Type-Options']='nosniff';return r
+class EditionViewSet(MetierViewSet):
+    """Ressource Edition ; contrats HTTP et validations métier conservés."""
+
+    @action(detail=False, methods=['get'])
+    def societe(self, request):
+        sid=ident(_societe_param(request));assert_acces_societe(request.user,sid)
+        return Response(identite(Societe.objects.get(id=sid)))
+
+
+    @action(detail=False, methods=['post'])
+    def telecharger(self, request):
+        sid=ident(_societe_param(request));assert_acces_societe(request.user,sid)
+        if len(request.body)>4000000: raise ValidationError('Document trop volumineux.')
+        spec=normaliser(request.data);soc=identite(Societe.objects.get(id=sid));fmt=request.data.get('format')
+        if fmt not in ['pdf','xlsx']: raise ValidationError('Format non pris en charge.')
+        data=pdf(spec,soc) if fmt=='pdf' else xlsx(spec,soc)
+        r=HttpResponse(data,content_type='application/pdf' if fmt=='pdf' else 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        nom=re.sub(r'[^\w .-]','',spec['titre'])[:100].strip() or 'Document'
+        r['Content-Disposition']=content_disposition_header(True,f'{nom}.{fmt}');r['Cache-Control']='private, no-store'
+        r['X-Content-Type-Options']='nosniff';return r
+
+
+# Anciens points d’entrée conservés pour les intégrations existantes.
+societe = EditionViewSet.as_view({'get': 'societe'}, http_method_names=['get', 'options'], detail=False, basename='edition')
+telecharger = EditionViewSet.as_view({'post': 'telecharger'}, http_method_names=['post', 'options'], detail=False, basename='edition')

@@ -10,10 +10,18 @@ de règlement existant (/ventes/factures/<id>/reglement).
 """
 from __future__ import annotations
 
+from rest_framework.decorators import action
+from core.viewsets import MetierModelViewSet, MetierViewSet
+from core.models import Tiers
+from apps.hotel.serializers import TiersSerializer
+from apps.hotel.models import Chambre
+from apps.hotel.serializers import ChambreSerializer
+from apps.hotel.models import Sejour
+from apps.hotel.serializers import SejourSerializer
+
 from datetime import date, timedelta
 
 from django.db import transaction
-from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from apps.comptabilite import services as comptabilite
@@ -54,83 +62,95 @@ def _sejour_en_cours(chambre_id):
     return Sejour.objects.filter(chambre_id=chambre_id, statut="arrivee").first()
 
 
-@api_view(["GET", "POST"])
-def chambres(request):
-    sid = _societe_param(request)
-    _acces(request, sid)
-    if request.method == "POST":
+class ChambreViewSet(MetierModelViewSet):
+    """Ressource Chambre ; contrats HTTP et validations métier conservés."""
+    queryset = Chambre.objects.none()
+    serializer_class = ChambreSerializer
+    lookup_url_kwarg = 'chambre_id'
+
+    def list(self, request):
+        return self._traiter_chambres(request)
+
+
+    def create(self, request):
+        return self._traiter_chambres(request)
+
+
+    def _traiter_chambres(self, request):
+        sid = _societe_param(request)
+        _acces(request, sid)
+        if request.method == "POST":
+            payload = request.data or {}
+            numero = (payload.get("numero") or "").strip()
+            if not numero:
+                return refus({"detail": "numero requis."}, status=422)
+            if Chambre.objects.filter(societe_id=sid, numero__iexact=numero,
+                                      actif=True).exists():
+                return refus({"detail": f"La chambre {numero} existe déjà."}, status=409)
+            with transaction.atomic():
+                c = Chambre.objects.create(
+                    societe_id=sid, numero=numero,
+                    categorie=(payload.get("categorie") or "").strip() or None,
+                    tarif_nuit_usd=payload.get("tarif_nuit_usd") or 0,
+                    capacite=payload.get("capacite") or 2,
+                    note=(payload.get("note") or "").strip() or None,
+                    created_by=request.user.id, created_at=services.maintenant())
+                services.enregistrer_audit(request.user.id, "INSERT", "chambre", c.id,
+                                           None, {"numero": numero})
+            return Response(_chambre_dict(c), status=201)
+        out = []
+        for c in Chambre.objects.filter(societe_id=sid).order_by("numero"):
+            sej = _sejour_en_cours(c.id)
+            out.append(_chambre_dict(c, {
+                "id": str(sej.id), "numero": sej.numero, "client": sej.client_nom,
+                "date_arrivee": sej.date_arrivee.isoformat(),
+                "date_depart_prevue": sej.date_depart_prevue.isoformat()}
+                if sej else None))
+        return Response(out)
+
+
+    def partial_update(self, request, chambre_id):
+        c = Chambre.objects.filter(id=chambre_id).first()
+        if not c:
+            return refus({"detail": "Chambre introuvable."}, status=404)
+        _acces(request, c.societe_id)
         payload = request.data or {}
-        numero = (payload.get("numero") or "").strip()
-        if not numero:
-            return refus({"detail": "numero requis."}, status=422)
-        if Chambre.objects.filter(societe_id=sid, numero__iexact=numero,
-                                  actif=True).exists():
-            return refus({"detail": f"La chambre {numero} existe déjà."}, status=409)
+        avant = _chambre_dict(c)
+        if "etat" in payload:
+            etat = payload["etat"]
+            if etat not in ETATS_CHAMBRE:
+                return refus({"detail": f"etat : {', '.join(ETATS_CHAMBRE)}."},
+                             status=422)
+            if c.etat == "occupee" and etat != "occupee" and _sejour_en_cours(c.id):
+                return refus({"detail": "La chambre est occupée — faites d'abord le "
+                                        "check-out du séjour."}, status=409)
+            if etat == "occupee" and not _sejour_en_cours(c.id):
+                return refus({"detail": "« Occupée » se fait par le check-in d'un "
+                                        "séjour."}, status=409)
+            c.etat = etat
+        if "numero" in payload:
+            numero = (payload["numero"] or "").strip()
+            if not numero:
+                return refus({"detail": "numero requis."}, status=422)
+            c.numero = numero
+        if "categorie" in payload:
+            c.categorie = (payload["categorie"] or "").strip() or None
+        if "tarif_nuit_usd" in payload:
+            c.tarif_nuit_usd = payload["tarif_nuit_usd"] or 0
+        if "capacite" in payload:
+            c.capacite = payload["capacite"] or 2
+        if "note" in payload:
+            c.note = (payload["note"] or "").strip() or None
+        if "actif" in payload:
+            if payload["actif"] is False and _sejour_en_cours(c.id):
+                return refus({"detail": "Chambre occupée — check-out d'abord."},
+                             status=409)
+            c.actif = bool(payload["actif"])
         with transaction.atomic():
-            c = Chambre.objects.create(
-                societe_id=sid, numero=numero,
-                categorie=(payload.get("categorie") or "").strip() or None,
-                tarif_nuit_usd=payload.get("tarif_nuit_usd") or 0,
-                capacite=payload.get("capacite") or 2,
-                note=(payload.get("note") or "").strip() or None,
-                created_by=request.user.id, created_at=services.maintenant())
-            services.enregistrer_audit(request.user.id, "INSERT", "chambre", c.id,
-                                       None, {"numero": numero})
-        return Response(_chambre_dict(c), status=201)
-    out = []
-    for c in Chambre.objects.filter(societe_id=sid).order_by("numero"):
-        sej = _sejour_en_cours(c.id)
-        out.append(_chambre_dict(c, {
-            "id": str(sej.id), "numero": sej.numero, "client": sej.client_nom,
-            "date_arrivee": sej.date_arrivee.isoformat(),
-            "date_depart_prevue": sej.date_depart_prevue.isoformat()}
-            if sej else None))
-    return Response(out)
-
-
-@api_view(["PATCH"])
-def maj_chambre(request, chambre_id):
-    c = Chambre.objects.filter(id=chambre_id).first()
-    if not c:
-        return refus({"detail": "Chambre introuvable."}, status=404)
-    _acces(request, c.societe_id)
-    payload = request.data or {}
-    avant = _chambre_dict(c)
-    if "etat" in payload:
-        etat = payload["etat"]
-        if etat not in ETATS_CHAMBRE:
-            return refus({"detail": f"etat : {', '.join(ETATS_CHAMBRE)}."},
-                         status=422)
-        if c.etat == "occupee" and etat != "occupee" and _sejour_en_cours(c.id):
-            return refus({"detail": "La chambre est occupée — faites d'abord le "
-                                    "check-out du séjour."}, status=409)
-        if etat == "occupee" and not _sejour_en_cours(c.id):
-            return refus({"detail": "« Occupée » se fait par le check-in d'un "
-                                    "séjour."}, status=409)
-        c.etat = etat
-    if "numero" in payload:
-        numero = (payload["numero"] or "").strip()
-        if not numero:
-            return refus({"detail": "numero requis."}, status=422)
-        c.numero = numero
-    if "categorie" in payload:
-        c.categorie = (payload["categorie"] or "").strip() or None
-    if "tarif_nuit_usd" in payload:
-        c.tarif_nuit_usd = payload["tarif_nuit_usd"] or 0
-    if "capacite" in payload:
-        c.capacite = payload["capacite"] or 2
-    if "note" in payload:
-        c.note = (payload["note"] or "").strip() or None
-    if "actif" in payload:
-        if payload["actif"] is False and _sejour_en_cours(c.id):
-            return refus({"detail": "Chambre occupée — check-out d'abord."},
-                         status=409)
-        c.actif = bool(payload["actif"])
-    with transaction.atomic():
-        c.save()
-        services.enregistrer_audit(request.user.id, "UPDATE", "chambre", c.id,
-                                   avant, _chambre_dict(c))
-    return Response(_chambre_dict(c))
+            c.save()
+            services.enregistrer_audit(request.user.id, "UPDATE", "chambre", c.id,
+                                       avant, _chambre_dict(c))
+        return Response(_chambre_dict(c))
 
 
 # ═══ Séjours (réservations, check-in/out) ════════════════════════════
@@ -201,206 +221,35 @@ def _tiers_du_sejour(sejour, sid, user_id):
     return t
 
 
-@api_view(["GET", "POST"])
-@transaction.atomic
-def clients(request):
-    """La réception peut retrouver/créer les clients qu'elle crée déjà au check-in."""
-    from apps.commercial.views import _tiers_dict
-    sid = _societe_param(request)
-    _acces(request, sid)
-    if request.method == 'GET':
-        return Response([_tiers_dict(t) for t in tiers_visibles(sid).filter(type='client').order_by('nom')])
-    payload = request.data or {}
-    if not str(payload.get('code') or '').strip() or len(str(payload.get('nom') or '').strip()) < 2:
-        return refus({'detail':'Code et nom du client requis.'}, status=422)
-    verrouiller_catalogue(sid)
-    verifier_doublon(tiers_visibles(sid), payload, 'nom')
-    t = Tiers.objects.create(societe_id=sid, type='client', code=payload['code'].strip().upper(), nom=payload['nom'].strip())
-    services.enregistrer_audit(request.user.id, 'INSERT', 'tiers', t.id, None, {'nom':t.nom})
-    return Response(_tiers_dict(t), status=201)
+class ClientViewSet(MetierModelViewSet):
+    """Ressource Client ; contrats HTTP et validations métier conservés."""
+    queryset = Tiers.objects.none()
+    serializer_class = TiersSerializer
+
+    def list(self, request):
+        return self._traiter_clients(request)
 
 
-@api_view(["GET", "POST"])
-def sejours(request):
-    sid = _societe_param(request)
-    _acces(request, sid)
-    if request.method == "POST":
+    def create(self, request):
+        return self._traiter_clients(request)
+
+
+    @transaction.atomic
+    def _traiter_clients(self, request):
+        """La réception peut retrouver/créer les clients qu'elle crée déjà au check-in."""
+        from apps.commercial.views import _tiers_dict
+        sid = _societe_param(request)
+        _acces(request, sid)
+        if request.method == 'GET':
+            return Response([_tiers_dict(t) for t in tiers_visibles(sid).filter(type='client').order_by('nom')])
         payload = request.data or {}
-        chambre = Chambre.objects.filter(id=payload.get("chambre_id")).first()
-        if not chambre or str(chambre.societe_id) != str(sid) or not chambre.actif:
-            return refus({"detail": "Chambre invalide."}, status=400)
-        client_nom = (payload.get("client_nom") or "").strip()
-        if payload.get('tiers_id'):
-            client = tiers_visibles(sid).filter(id=payload['tiers_id'], type='client', actif=True).first()
-            if not client:
-                return refus({'detail':'Choisissez un client actif de cette société.'}, status=422)
-            client_nom = client.nom
-        if len(client_nom) < 2:
-            return refus({"detail": "client_nom requis."}, status=422)
-        arrivee, depart, erreur = _lire_dates(payload)
-        if erreur:
-            return erreur
-        source = payload.get("source", "directe")
-        if source not in SOURCES:
-            return refus({"detail": f"source : {', '.join(SOURCES)}."}, status=422)
-        occupe = _chevauchement(chambre.id, arrivee, depart)
-        if occupe:
-            return refus({"detail": f"La chambre {chambre.numero} est prise sur "
-                                    f"ces dates ({occupe.numero} — "
-                                    f"{occupe.client_nom})."}, status=409)
-        walk_in = bool(payload.get("arrivee_immediate"))
-        if walk_in and arrivee != date.today():
-            return refus({"detail": "Arrivée immédiate : la date d'arrivée doit "
-                                    "être aujourd'hui."}, status=422)
-        if walk_in and chambre.etat in ("maintenance", "nettoyage", "sale"):
-            return refus({"detail": f"Chambre {chambre.numero} : "
-                                    f"{chambre.etat} — remettez-la disponible "
-                                    f"avant le check-in."}, status=409)
-        societe = Societe.objects.filter(id=sid).first()
-        tarif = payload.get("tarif_nuit_usd")
-        with transaction.atomic():
-            s = Sejour.objects.create(
-                societe_id=sid,
-                numero=services.next_numero("sejour", date.today().year,
-                                            societe.code, societe.id),
-                chambre_id=chambre.id,
-                tiers_id=payload.get("tiers_id") or None,
-                client_nom=client_nom,
-                client_telephone=(payload.get("client_telephone") or "").strip()
-                or None,
-                nb_personnes=payload.get("nb_personnes") or 1,
-                date_arrivee=arrivee, date_depart_prevue=depart,
-                tarif_nuit_usd=tarif if tarif is not None
-                else chambre.tarif_nuit_usd,
-                statut="arrivee" if walk_in else "reservee",
-                source=source,
-                note=(payload.get("note") or "").strip() or None,
-                created_by=request.user.id, created_at=services.maintenant())
-            if walk_in:
-                chambre.etat = "occupee"
-                chambre.save(update_fields=["etat"])
-                _tiers_du_sejour(s, sid, request.user.id)
-            services.enregistrer_audit(request.user.id, "INSERT", "sejour", s.id,
-                                       None, {"numero": s.numero,
-                                              "client": client_nom,
-                                              "statut": s.statut})
-        return Response(_sejour_dict(s), status=201)
-    q = Sejour.objects.filter(societe_id=sid)
-    statut = request.query_params.get("statut")
-    if statut:
-        q = q.filter(statut=statut)
-    du, au = request.query_params.get("du"), request.query_params.get("au")
-    if du:
-        q = q.filter(date_depart_prevue__gte=du)
-    if au:
-        q = q.filter(date_arrivee__lte=au)
-    return Response([_sejour_dict(s)
-                     for s in q.order_by("-date_arrivee", "-created_at")[:300]])
-
-
-@api_view(["PATCH"])
-def maj_sejour(request, sejour_id):
-    s = Sejour.objects.filter(id=sejour_id).first()
-    if not s:
-        return refus({"detail": "Séjour introuvable."}, status=404)
-    _acces(request, s.societe_id)
-    if s.statut not in ("reservee", "arrivee"):
-        return refus({"detail": f"Séjour {s.statut} — non modifiable."}, status=409)
-    payload = request.data or {}
-    avant = _sejour_dict(s)
-    if 'tiers_id' in payload:
-        client = tiers_visibles(s.societe_id).filter(id=payload['tiers_id'], type='client', actif=True).first()
-        if not client:
-            return refus({'detail':'Choisissez un client actif de cette société.'}, status=422)
-        # Une identité déjà liée à un séjour ne se remplace pas implicitement.
-        if s.tiers_id and str(s.tiers_id) != str(client.id):
-            return refus({'detail':'Ce séjour est déjà lié à un autre client.'}, status=409)
-        s.tiers_id = client.id
-    if "date_arrivee" in payload or "date_depart_prevue" in payload:
-        if s.statut == "arrivee" and "date_arrivee" in payload:
-            return refus({"detail": "Client déjà arrivé — la date d'arrivée est "
-                                    "figée."}, status=409)
-        melange = {"date_arrivee": payload.get("date_arrivee",
-                                               s.date_arrivee.isoformat()),
-                   "date_depart_prevue": payload.get(
-                       "date_depart_prevue", s.date_depart_prevue.isoformat())}
-        arrivee, depart, erreur = _lire_dates(melange)
-        if erreur:
-            return erreur
-        occupe = _chevauchement(s.chambre_id, arrivee, depart, exclure_id=s.id)
-        if occupe:
-            return refus({"detail": f"Chambre prise sur ces dates "
-                                    f"({occupe.numero})."}, status=409)
-        s.date_arrivee, s.date_depart_prevue = arrivee, depart
-    for champ in ("client_nom", "client_telephone", "note"):
-        if champ in payload:
-            valeur = (payload[champ] or "").strip() or None
-            if champ == "client_nom" and not valeur:
-                return refus({"detail": "client_nom requis."}, status=422)
-            setattr(s, champ, valeur)
-    if 'tiers_id' in payload and s.tiers_id:
-        client = Tiers.objects.filter(id=s.tiers_id).first()
-        if client:
-            s.client_nom = client.nom
-    if "nb_personnes" in payload:
-        s.nb_personnes = payload["nb_personnes"] or 1
-    if "tarif_nuit_usd" in payload:
-        s.tarif_nuit_usd = payload["tarif_nuit_usd"] or 0
-    with transaction.atomic():
-        s.save()
-        services.enregistrer_audit(request.user.id, "UPDATE", "sejour", s.id,
-                                   avant, _sejour_dict(s))
-    return Response(_sejour_dict(s))
-
-
-@api_view(["POST"])
-def checkin(request, sejour_id):
-    s = Sejour.objects.filter(id=sejour_id).first()
-    if not s:
-        return refus({"detail": "Séjour introuvable."}, status=404)
-    _acces(request, s.societe_id)
-    if s.statut != "reservee":
-        return refus({"detail": f"Séjour {s.statut} — check-in impossible."},
-                     status=409)
-    chambre = Chambre.objects.filter(id=s.chambre_id).first()
-    if chambre.etat in ("sale", "nettoyage", "maintenance"):
-        return refus({"detail": f"Chambre {chambre.numero} : {chambre.etat} — "
-                                f"remettez-la disponible avant le check-in."},
-                     status=409)
-    if _sejour_en_cours(chambre.id):
-        return refus({"detail": f"Chambre {chambre.numero} déjà occupée."},
-                     status=409)
-    with transaction.atomic():
-        s.statut = "arrivee"
-        if s.date_arrivee != date.today():
-            s.date_arrivee = date.today()
-            if s.date_depart_prevue <= s.date_arrivee:
-                s.date_depart_prevue = s.date_arrivee + timedelta(days=1)
-        s.save()
-        chambre.etat = "occupee"
-        chambre.save(update_fields=["etat"])
-        _tiers_du_sejour(s, s.societe_id, request.user.id)
-        services.enregistrer_audit(request.user.id, "CHECKIN", "sejour", s.id,
-                                   None, {"numero": s.numero})
-    return Response(_sejour_dict(s))
-
-
-@api_view(["POST"])
-def annuler_sejour(request, sejour_id):
-    s = Sejour.objects.filter(id=sejour_id).first()
-    if not s:
-        return refus({"detail": "Séjour introuvable."}, status=404)
-    _acces(request, s.societe_id)
-    if s.statut != "reservee":
-        return refus({"detail": "Seule une réservation (avant arrivée) peut être "
-                                "annulée ou déclarée no-show."}, status=409)
-    no_show = bool((request.data or {}).get("no_show"))
-    with transaction.atomic():
-        s.statut = "no_show" if no_show else "annulee"
-        s.save(update_fields=["statut"])
-        services.enregistrer_audit(request.user.id, "UPDATE", "sejour", s.id,
-                                   None, {"numero": s.numero, "statut": s.statut})
-    return Response(_sejour_dict(s))
+        if not str(payload.get('code') or '').strip() or len(str(payload.get('nom') or '').strip()) < 2:
+            return refus({'detail':'Code et nom du client requis.'}, status=422)
+        verrouiller_catalogue(sid)
+        verifier_doublon(tiers_visibles(sid), payload, 'nom')
+        t = Tiers.objects.create(societe_id=sid, type='client', code=payload['code'].strip().upper(), nom=payload['nom'].strip())
+        services.enregistrer_audit(request.user.id, 'INSERT', 'tiers', t.id, None, {'nom':t.nom})
+        return Response(_tiers_dict(t), status=201)
 
 
 # ═══ Folio ═══════════════════════════════════════════════════════════
@@ -463,229 +312,443 @@ def _folio_data(s: Sejour) -> dict:
             "solde_du_usd": round(solde_sejour + solde_tickets, 2)}
 
 
-@api_view(["GET"])
-def folio(request, sejour_id):
-    s = Sejour.objects.filter(id=sejour_id).first()
-    if not s:
-        return refus({"detail": "Séjour introuvable."}, status=404)
-    _acces(request, s.societe_id)
-    return Response(_folio_data(s))
+class SejourViewSet(MetierModelViewSet):
+    """Ressource Sejour ; contrats HTTP et validations métier conservés."""
+    queryset = Sejour.objects.none()
+    serializer_class = SejourSerializer
+    lookup_url_kwarg = 'sejour_id'
+
+    def list(self, request):
+        return self._traiter_sejours(request)
 
 
-@api_view(["POST"])
-def ajouter_ligne(request, sejour_id):
-    s = Sejour.objects.filter(id=sejour_id).first()
-    if not s:
-        return refus({"detail": "Séjour introuvable."}, status=404)
-    _acces(request, s.societe_id)
-    if s.statut != "arrivee":
-        return refus({"detail": "Les extras s'ajoutent sur un séjour en cours."},
-                     status=409)
-    payload = request.data or {}
-    designation = (payload.get("designation") or "").strip()
-    if len(designation) < 2:
-        return refus({"detail": "designation requise."}, status=422)
-    try:
-        qte = round(float(payload.get("qte", 1)), 2)
-        prix = round(float(payload.get("prix_unitaire")), 2)
-        if qte <= 0 or prix < 0:
-            raise ValueError
-    except (TypeError, ValueError):
-        return refus({"detail": "qte > 0 et prix_unitaire >= 0 requis."},
-                     status=422)
-    origine = payload.get("origine", "divers")
-    with transaction.atomic():
-        ln = LigneSejour.objects.create(
-            sejour_id=s.id, date_ligne=date.today(), designation=designation,
-            qte=qte, prix_unitaire=prix, montant_usd=round(qte * prix, 2),
-            origine=origine[:16], created_by=request.user.id,
-            created_at=services.maintenant())
-        services.enregistrer_audit(request.user.id, "INSERT", "ligne_sejour",
-                                   ln.id, None, {"sejour": s.numero,
-                                                 "designation": designation})
-    return Response(_folio_data(s), status=201)
+    def create(self, request):
+        return self._traiter_sejours(request)
 
 
-@api_view(["DELETE"])
-def supprimer_ligne(request, sejour_id, ligne_id):
-    s = Sejour.objects.filter(id=sejour_id).first()
-    ln = LigneSejour.objects.filter(id=ligne_id, sejour_id=sejour_id).first()
-    if not s or not ln:
-        return refus({"detail": "Ligne introuvable."}, status=404)
-    _acces(request, s.societe_id)
-    if s.statut != "arrivee":
-        return refus({"detail": "Séjour clôturé — note figée."}, status=409)
-    if ln.facture_pos_id:
-        return refus({"detail": "Ticket POS déjà facturé — annulez-le côté POS "
-                                "(retour) si besoin."}, status=409)
-    with transaction.atomic():
-        services.enregistrer_audit(request.user.id, "DELETE", "ligne_sejour",
-                                   ligne_id, {"designation": ln.designation}, None)
-        ln.delete()
-    return Response(_folio_data(s))
+    def _traiter_sejours(self, request):
+        sid = _societe_param(request)
+        _acces(request, sid)
+        if request.method == "POST":
+            payload = request.data or {}
+            chambre = Chambre.objects.filter(id=payload.get("chambre_id")).first()
+            if not chambre or str(chambre.societe_id) != str(sid) or not chambre.actif:
+                return refus({"detail": "Chambre invalide."}, status=400)
+            client_nom = (payload.get("client_nom") or "").strip()
+            if payload.get('tiers_id'):
+                client = tiers_visibles(sid).filter(id=payload['tiers_id'], type='client', actif=True).first()
+                if not client:
+                    return refus({'detail':'Choisissez un client actif de cette société.'}, status=422)
+                client_nom = client.nom
+            if len(client_nom) < 2:
+                return refus({"detail": "client_nom requis."}, status=422)
+            arrivee, depart, erreur = _lire_dates(payload)
+            if erreur:
+                return erreur
+            source = payload.get("source", "directe")
+            if source not in SOURCES:
+                return refus({"detail": f"source : {', '.join(SOURCES)}."}, status=422)
+            occupe = _chevauchement(chambre.id, arrivee, depart)
+            if occupe:
+                return refus({"detail": f"La chambre {chambre.numero} est prise sur "
+                                        f"ces dates ({occupe.numero} — "
+                                        f"{occupe.client_nom})."}, status=409)
+            walk_in = bool(payload.get("arrivee_immediate"))
+            if walk_in and arrivee != date.today():
+                return refus({"detail": "Arrivée immédiate : la date d'arrivée doit "
+                                        "être aujourd'hui."}, status=422)
+            if walk_in and chambre.etat in ("maintenance", "nettoyage", "sale"):
+                return refus({"detail": f"Chambre {chambre.numero} : "
+                                        f"{chambre.etat} — remettez-la disponible "
+                                        f"avant le check-in."}, status=409)
+            societe = Societe.objects.filter(id=sid).first()
+            tarif = payload.get("tarif_nuit_usd")
+            with transaction.atomic():
+                s = Sejour.objects.create(
+                    societe_id=sid,
+                    numero=services.next_numero("sejour", date.today().year,
+                                                societe.code, societe.id),
+                    chambre_id=chambre.id,
+                    tiers_id=payload.get("tiers_id") or None,
+                    client_nom=client_nom,
+                    client_telephone=(payload.get("client_telephone") or "").strip()
+                    or None,
+                    nb_personnes=payload.get("nb_personnes") or 1,
+                    date_arrivee=arrivee, date_depart_prevue=depart,
+                    tarif_nuit_usd=tarif if tarif is not None
+                    else chambre.tarif_nuit_usd,
+                    statut="arrivee" if walk_in else "reservee",
+                    source=source,
+                    note=(payload.get("note") or "").strip() or None,
+                    created_by=request.user.id, created_at=services.maintenant())
+                if walk_in:
+                    chambre.etat = "occupee"
+                    chambre.save(update_fields=["etat"])
+                    _tiers_du_sejour(s, sid, request.user.id)
+                services.enregistrer_audit(request.user.id, "INSERT", "sejour", s.id,
+                                           None, {"numero": s.numero,
+                                                  "client": client_nom,
+                                                  "statut": s.statut})
+            return Response(_sejour_dict(s), status=201)
+        q = Sejour.objects.filter(societe_id=sid)
+        statut = request.query_params.get("statut")
+        if statut:
+            q = q.filter(statut=statut)
+        du, au = request.query_params.get("du"), request.query_params.get("au")
+        if du:
+            q = q.filter(date_depart_prevue__gte=du)
+        if au:
+            q = q.filter(date_arrivee__lte=au)
+        return Response([_sejour_dict(s)
+                         for s in q.order_by("-date_arrivee", "-created_at")[:300]])
 
 
-@api_view(["POST"])
-def checkout(request, sejour_id):
-    """Départ : facture d'hébergement (nuitées + extras), chambre à nettoyer.
-    L'encaissement se fait ensuite par le règlement de facture existant."""
-    s = Sejour.objects.filter(id=sejour_id).first()
-    if not s:
-        return refus({"detail": "Séjour introuvable."}, status=404)
-    _acces(request, s.societe_id)
-    if s.statut != "arrivee":
-        return refus({"detail": "Seul un séjour en cours peut faire son "
-                                "check-out."}, status=409)
-    s.date_depart = date.today()
-    if s.date_depart < s.date_arrivee:
-        return refus({"detail": "Date de départ avant l'arrivée ?"}, status=409)
-    tiers = _tiers_du_sejour(s, s.societe_id, request.user.id)
-    donnees = _folio_data(s)
-    societe = Societe.objects.filter(id=s.societe_id).first()
-    chambre = Chambre.objects.filter(id=s.chambre_id).first()
-    jour = date.today()
-    taux_tva = float(services.get_parametre("tva.taux_defaut", s.societe_id, "16"))
-    with transaction.atomic():
-        numero = services.next_numero("facture_vente", jour.year,
-                                      societe.code, societe.id)
-        fac = Facture.objects.create(
-            societe_id=s.societe_id, type="vente", numero=numero,
-            tiers_id=tiers.id, date_facture=jour,
-            reference=s.numero, statut="validee",
-            created_by=request.user.id, created_at=services.maintenant())
-        lignes_payload = [{
-            "designation": f"Hébergement chambre {chambre.numero} — "
-                           f"{donnees['nuits']} nuit(s) du "
-                           f"{s.date_arrivee.strftime('%d/%m')} au "
-                           f"{s.date_depart.strftime('%d/%m/%Y')}",
-            "qte": donnees["nuits"], "pu": float(s.tarif_nuit_usd or 0)}]
-        for extra in donnees["extras"]:
-            lignes_payload.append({"designation": extra["designation"],
-                                   "qte": extra["qte"],
-                                   "pu": extra["prix_unitaire"]})
-        total_ht = total_tva = 0.0
-        for lp in lignes_payload:
-            ht = round(float(lp["qte"]) * float(lp["pu"]), 2)
-            tva = round(ht * taux_tva / 100, 2)
-            LigneFacture.objects.create(
-                facture_id=fac.id, article_id=None,
-                designation=lp["designation"][:255], qte=lp["qte"],
-                prix_unitaire=lp["pu"], taux_tva=taux_tva,
-                montant_ht=ht, montant_tva=tva)
-            total_ht = round(total_ht + ht, 2)
-            total_tva = round(total_tva + tva, 2)
-        fac.total_ht = total_ht
-        fac.total_tva = total_tva
-        fac.total_ttc = round(total_ht + total_tva, 2)
-        lignes_ecr = [{"sens": "D",
-                       "compte": comptabilite._compte("compte_client",
-                                                      s.societe_id),
-                       "montant_usd": float(fac.total_ttc), "tiers_id": tiers.id,
-                       "libelle": f"Séjour {s.numero} — {tiers.nom}"},
-                      {"sens": "C",
-                       "compte": comptabilite._compte("compte_vente_hebergement",
-                                                      s.societe_id),
-                       "montant_usd": total_ht,
-                       "libelle": f"Hébergement {s.numero}"}]
-        if total_tva:
-            lignes_ecr.append({"sens": "C",
-                               "compte": comptabilite._compte("tva_collectee",
-                                                              s.societe_id),
-                               "montant_usd": total_tva,
-                               "libelle": f"TVA collectée {numero}"})
-        statut_piece = intersociete_lib._statut_piece(s.societe_id, "vente")
-        ecr = comptabilite.post_ecriture(
-            s.societe_id, "VE", "Ventes", "vente", jour,
-            f"Facture séjour {numero} — {tiers.nom}", lignes_ecr,
-            "facture_vente", "facture", fac.id, numero,
-            request.user.id, statut=statut_piece)
-        fac.ecriture_id = ecr.id
-        fac.save()
-        s.statut = "terminee"
-        s.facture_id = fac.id
-        s.save()
-        chambre.etat = "sale"
-        chambre.save(update_fields=["etat"])
-        services.enregistrer_audit(request.user.id, "CHECKOUT", "sejour", s.id,
-                                   None, {"numero": s.numero,
-                                          "facture": numero,
-                                          "total_ttc": float(fac.total_ttc)})
-    return Response({"sejour": _sejour_dict(s),
-                     "facture": {"id": str(fac.id), "numero": numero,
-                                 "total_ht": total_ht, "total_tva": total_tva,
-                                 "total_ttc": float(fac.total_ttc)},
-                     "tickets_pos_a_encaisser": donnees["tickets_pos"],
-                     "total_note": round(float(fac.total_ttc)
-                                         + donnees["total_tickets_pos"], 2)},
-                    status=201)
+    def partial_update(self, request, sejour_id):
+        s = Sejour.objects.filter(id=sejour_id).first()
+        if not s:
+            return refus({"detail": "Séjour introuvable."}, status=404)
+        _acces(request, s.societe_id)
+        if s.statut not in ("reservee", "arrivee"):
+            return refus({"detail": f"Séjour {s.statut} — non modifiable."}, status=409)
+        payload = request.data or {}
+        avant = _sejour_dict(s)
+        if 'tiers_id' in payload:
+            client = tiers_visibles(s.societe_id).filter(id=payload['tiers_id'], type='client', actif=True).first()
+            if not client:
+                return refus({'detail':'Choisissez un client actif de cette société.'}, status=422)
+            # Une identité déjà liée à un séjour ne se remplace pas implicitement.
+            if s.tiers_id and str(s.tiers_id) != str(client.id):
+                return refus({'detail':'Ce séjour est déjà lié à un autre client.'}, status=409)
+            s.tiers_id = client.id
+        if "date_arrivee" in payload or "date_depart_prevue" in payload:
+            if s.statut == "arrivee" and "date_arrivee" in payload:
+                return refus({"detail": "Client déjà arrivé — la date d'arrivée est "
+                                        "figée."}, status=409)
+            melange = {"date_arrivee": payload.get("date_arrivee",
+                                                   s.date_arrivee.isoformat()),
+                       "date_depart_prevue": payload.get(
+                           "date_depart_prevue", s.date_depart_prevue.isoformat())}
+            arrivee, depart, erreur = _lire_dates(melange)
+            if erreur:
+                return erreur
+            occupe = _chevauchement(s.chambre_id, arrivee, depart, exclure_id=s.id)
+            if occupe:
+                return refus({"detail": f"Chambre prise sur ces dates "
+                                        f"({occupe.numero})."}, status=409)
+            s.date_arrivee, s.date_depart_prevue = arrivee, depart
+        for champ in ("client_nom", "client_telephone", "note"):
+            if champ in payload:
+                valeur = (payload[champ] or "").strip() or None
+                if champ == "client_nom" and not valeur:
+                    return refus({"detail": "client_nom requis."}, status=422)
+                setattr(s, champ, valeur)
+        if 'tiers_id' in payload and s.tiers_id:
+            client = Tiers.objects.filter(id=s.tiers_id).first()
+            if client:
+                s.client_nom = client.nom
+        if "nb_personnes" in payload:
+            s.nb_personnes = payload["nb_personnes"] or 1
+        if "tarif_nuit_usd" in payload:
+            s.tarif_nuit_usd = payload["tarif_nuit_usd"] or 0
+        with transaction.atomic():
+            s.save()
+            services.enregistrer_audit(request.user.id, "UPDATE", "sejour", s.id,
+                                       avant, _sejour_dict(s))
+        return Response(_sejour_dict(s))
+
+
+    @action(detail=True, methods=['post'])
+    def checkin(self, request, sejour_id):
+        s = Sejour.objects.filter(id=sejour_id).first()
+        if not s:
+            return refus({"detail": "Séjour introuvable."}, status=404)
+        _acces(request, s.societe_id)
+        if s.statut != "reservee":
+            return refus({"detail": f"Séjour {s.statut} — check-in impossible."},
+                         status=409)
+        chambre = Chambre.objects.filter(id=s.chambre_id).first()
+        if chambre.etat in ("sale", "nettoyage", "maintenance"):
+            return refus({"detail": f"Chambre {chambre.numero} : {chambre.etat} — "
+                                    f"remettez-la disponible avant le check-in."},
+                         status=409)
+        if _sejour_en_cours(chambre.id):
+            return refus({"detail": f"Chambre {chambre.numero} déjà occupée."},
+                         status=409)
+        with transaction.atomic():
+            s.statut = "arrivee"
+            if s.date_arrivee != date.today():
+                s.date_arrivee = date.today()
+                if s.date_depart_prevue <= s.date_arrivee:
+                    s.date_depart_prevue = s.date_arrivee + timedelta(days=1)
+            s.save()
+            chambre.etat = "occupee"
+            chambre.save(update_fields=["etat"])
+            _tiers_du_sejour(s, s.societe_id, request.user.id)
+            services.enregistrer_audit(request.user.id, "CHECKIN", "sejour", s.id,
+                                       None, {"numero": s.numero})
+        return Response(_sejour_dict(s))
+
+
+    @action(detail=True, methods=['post'])
+    def annuler(self, request, sejour_id):
+        s = Sejour.objects.filter(id=sejour_id).first()
+        if not s:
+            return refus({"detail": "Séjour introuvable."}, status=404)
+        _acces(request, s.societe_id)
+        if s.statut != "reservee":
+            return refus({"detail": "Seule une réservation (avant arrivée) peut être "
+                                    "annulée ou déclarée no-show."}, status=409)
+        no_show = bool((request.data or {}).get("no_show"))
+        with transaction.atomic():
+            s.statut = "no_show" if no_show else "annulee"
+            s.save(update_fields=["statut"])
+            services.enregistrer_audit(request.user.id, "UPDATE", "sejour", s.id,
+                                       None, {"numero": s.numero, "statut": s.statut})
+        return Response(_sejour_dict(s))
+
+
+    @action(detail=True, methods=['get'])
+    def folio(self, request, sejour_id):
+        s = Sejour.objects.filter(id=sejour_id).first()
+        if not s:
+            return refus({"detail": "Séjour introuvable."}, status=404)
+        _acces(request, s.societe_id)
+        return Response(_folio_data(s))
+
+
+    @action(detail=True, methods=['post'])
+    def lignes(self, request, sejour_id):
+        s = Sejour.objects.filter(id=sejour_id).first()
+        if not s:
+            return refus({"detail": "Séjour introuvable."}, status=404)
+        _acces(request, s.societe_id)
+        if s.statut != "arrivee":
+            return refus({"detail": "Les extras s'ajoutent sur un séjour en cours."},
+                         status=409)
+        payload = request.data or {}
+        designation = (payload.get("designation") or "").strip()
+        if len(designation) < 2:
+            return refus({"detail": "designation requise."}, status=422)
+        try:
+            qte = round(float(payload.get("qte", 1)), 2)
+            prix = round(float(payload.get("prix_unitaire")), 2)
+            if qte <= 0 or prix < 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            return refus({"detail": "qte > 0 et prix_unitaire >= 0 requis."},
+                         status=422)
+        origine = payload.get("origine", "divers")
+        with transaction.atomic():
+            ln = LigneSejour.objects.create(
+                sejour_id=s.id, date_ligne=date.today(), designation=designation,
+                qte=qte, prix_unitaire=prix, montant_usd=round(qte * prix, 2),
+                origine=origine[:16], created_by=request.user.id,
+                created_at=services.maintenant())
+            services.enregistrer_audit(request.user.id, "INSERT", "ligne_sejour",
+                                       ln.id, None, {"sejour": s.numero,
+                                                     "designation": designation})
+        return Response(_folio_data(s), status=201)
+
+
+    @action(detail=True, methods=['delete'])
+    def supprimer_ligne(self, request, sejour_id, ligne_id):
+        s = Sejour.objects.filter(id=sejour_id).first()
+        ln = LigneSejour.objects.filter(id=ligne_id, sejour_id=sejour_id).first()
+        if not s or not ln:
+            return refus({"detail": "Ligne introuvable."}, status=404)
+        _acces(request, s.societe_id)
+        if s.statut != "arrivee":
+            return refus({"detail": "Séjour clôturé — note figée."}, status=409)
+        if ln.facture_pos_id:
+            return refus({"detail": "Ticket POS déjà facturé — annulez-le côté POS "
+                                    "(retour) si besoin."}, status=409)
+        with transaction.atomic():
+            services.enregistrer_audit(request.user.id, "DELETE", "ligne_sejour",
+                                       ligne_id, {"designation": ln.designation}, None)
+            ln.delete()
+        return Response(_folio_data(s))
+
+
+    @action(detail=True, methods=['post'])
+    def checkout(self, request, sejour_id):
+        "Départ : facture d'hébergement (nuitées + extras), chambre à nettoyer.\n    L'encaissement se fait ensuite par le règlement de facture existant."
+        s = Sejour.objects.filter(id=sejour_id).first()
+        if not s:
+            return refus({"detail": "Séjour introuvable."}, status=404)
+        _acces(request, s.societe_id)
+        if s.statut != "arrivee":
+            return refus({"detail": "Seul un séjour en cours peut faire son "
+                                    "check-out."}, status=409)
+        s.date_depart = date.today()
+        if s.date_depart < s.date_arrivee:
+            return refus({"detail": "Date de départ avant l'arrivée ?"}, status=409)
+        tiers = _tiers_du_sejour(s, s.societe_id, request.user.id)
+        donnees = _folio_data(s)
+        societe = Societe.objects.filter(id=s.societe_id).first()
+        chambre = Chambre.objects.filter(id=s.chambre_id).first()
+        jour = date.today()
+        taux_tva = float(services.get_parametre("tva.taux_defaut", s.societe_id, "16"))
+        with transaction.atomic():
+            numero = services.next_numero("facture_vente", jour.year,
+                                          societe.code, societe.id)
+            fac = Facture.objects.create(
+                societe_id=s.societe_id, type="vente", numero=numero,
+                tiers_id=tiers.id, date_facture=jour,
+                reference=s.numero, statut="validee",
+                created_by=request.user.id, created_at=services.maintenant())
+            lignes_payload = [{
+                "designation": f"Hébergement chambre {chambre.numero} — "
+                               f"{donnees['nuits']} nuit(s) du "
+                               f"{s.date_arrivee.strftime('%d/%m')} au "
+                               f"{s.date_depart.strftime('%d/%m/%Y')}",
+                "qte": donnees["nuits"], "pu": float(s.tarif_nuit_usd or 0)}]
+            for extra in donnees["extras"]:
+                lignes_payload.append({"designation": extra["designation"],
+                                       "qte": extra["qte"],
+                                       "pu": extra["prix_unitaire"]})
+            total_ht = total_tva = 0.0
+            for lp in lignes_payload:
+                ht = round(float(lp["qte"]) * float(lp["pu"]), 2)
+                tva = round(ht * taux_tva / 100, 2)
+                LigneFacture.objects.create(
+                    facture_id=fac.id, article_id=None,
+                    designation=lp["designation"][:255], qte=lp["qte"],
+                    prix_unitaire=lp["pu"], taux_tva=taux_tva,
+                    montant_ht=ht, montant_tva=tva)
+                total_ht = round(total_ht + ht, 2)
+                total_tva = round(total_tva + tva, 2)
+            fac.total_ht = total_ht
+            fac.total_tva = total_tva
+            fac.total_ttc = round(total_ht + total_tva, 2)
+            lignes_ecr = [{"sens": "D",
+                           "compte": comptabilite._compte("compte_client",
+                                                          s.societe_id),
+                           "montant_usd": float(fac.total_ttc), "tiers_id": tiers.id,
+                           "libelle": f"Séjour {s.numero} — {tiers.nom}"},
+                          {"sens": "C",
+                           "compte": comptabilite._compte("compte_vente_hebergement",
+                                                          s.societe_id),
+                           "montant_usd": total_ht,
+                           "libelle": f"Hébergement {s.numero}"}]
+            if total_tva:
+                lignes_ecr.append({"sens": "C",
+                                   "compte": comptabilite._compte("tva_collectee",
+                                                                  s.societe_id),
+                                   "montant_usd": total_tva,
+                                   "libelle": f"TVA collectée {numero}"})
+            statut_piece = intersociete_lib._statut_piece(s.societe_id, "vente")
+            ecr = comptabilite.post_ecriture(
+                s.societe_id, "VE", "Ventes", "vente", jour,
+                f"Facture séjour {numero} — {tiers.nom}", lignes_ecr,
+                "facture_vente", "facture", fac.id, numero,
+                request.user.id, statut=statut_piece)
+            fac.ecriture_id = ecr.id
+            fac.save()
+            s.statut = "terminee"
+            s.facture_id = fac.id
+            s.save()
+            chambre.etat = "sale"
+            chambre.save(update_fields=["etat"])
+            services.enregistrer_audit(request.user.id, "CHECKOUT", "sejour", s.id,
+                                       None, {"numero": s.numero,
+                                              "facture": numero,
+                                              "total_ttc": float(fac.total_ttc)})
+        return Response({"sejour": _sejour_dict(s),
+                         "facture": {"id": str(fac.id), "numero": numero,
+                                     "total_ht": total_ht, "total_tva": total_tva,
+                                     "total_ttc": float(fac.total_ttc)},
+                         "tickets_pos_a_encaisser": donnees["tickets_pos"],
+                         "total_note": round(float(fac.total_ttc)
+                                             + donnees["total_tickets_pos"], 2)},
+                        status=201)
 
 
 # ═══ Planning & rapport d'occupation ═════════════════════════════════
 
-@api_view(["GET"])
-def planning(request):
-    """Grille chambres x jours : qui occupe/réserve quoi sur la période."""
-    sid = _societe_param(request)
-    _acces(request, sid)
-    try:
-        du = date.fromisoformat(request.query_params.get("du"))
-    except (TypeError, ValueError):
-        du = date.today()
-    try:
-        nb_jours = min(31, max(7, int(request.query_params.get("jours", 14))))
-    except ValueError:
-        nb_jours = 14
-    au = du + timedelta(days=nb_jours)
-    sejours_l = list(Sejour.objects.filter(societe_id=sid,
-                                           statut__in=STATUTS_OCCUPANTS,
-                                           date_arrivee__lt=au,
-                                           date_depart_prevue__gt=du))
-    out = []
-    for c in Chambre.objects.filter(societe_id=sid, actif=True).order_by("numero"):
-        occ = [{"sejour_id": str(s.id), "numero": s.numero,
-                "client": s.client_nom, "statut": s.statut,
-                "du": s.date_arrivee.isoformat(),
-                "au": s.date_depart_prevue.isoformat()}
-               for s in sejours_l if s.chambre_id == c.id]
-        out.append({**_chambre_dict(c), "occupations": occ})
-    return Response({"du": du.isoformat(), "jours": nb_jours, "chambres": out})
+
+class HotelViewSet(MetierViewSet):
+    """Ressource Hotel ; contrats HTTP et validations métier conservés."""
+
+    @action(detail=False, methods=['get'])
+    def planning(self, request):
+        """Grille chambres x jours : qui occupe/réserve quoi sur la période."""
+        sid = _societe_param(request)
+        _acces(request, sid)
+        try:
+            du = date.fromisoformat(request.query_params.get("du"))
+        except (TypeError, ValueError):
+            du = date.today()
+        try:
+            nb_jours = min(31, max(7, int(request.query_params.get("jours", 14))))
+        except ValueError:
+            nb_jours = 14
+        au = du + timedelta(days=nb_jours)
+        sejours_l = list(Sejour.objects.filter(societe_id=sid,
+                                               statut__in=STATUTS_OCCUPANTS,
+                                               date_arrivee__lt=au,
+                                               date_depart_prevue__gt=du))
+        out = []
+        for c in Chambre.objects.filter(societe_id=sid, actif=True).order_by("numero"):
+            occ = [{"sejour_id": str(s.id), "numero": s.numero,
+                    "client": s.client_nom, "statut": s.statut,
+                    "du": s.date_arrivee.isoformat(),
+                    "au": s.date_depart_prevue.isoformat()}
+                   for s in sejours_l if s.chambre_id == c.id]
+            out.append({**_chambre_dict(c), "occupations": occ})
+        return Response({"du": du.isoformat(), "jours": nb_jours, "chambres": out})
 
 
-@api_view(["GET"])
-def rapport_hotel(request):
-    """Taux d'occupation, nuitées, revenus — indicateurs standard (ADR, RevPAR)."""
-    sid = _societe_param(request)
-    _acces(request, sid)
-    try:
-        du = date.fromisoformat(request.query_params.get("du"))
-        au = date.fromisoformat(request.query_params.get("au"))
-    except (TypeError, ValueError):
-        au = date.today()
-        du = au.replace(day=1)
-    if au < du:
-        du, au = au, du
-    nb_chambres = Chambre.objects.filter(societe_id=sid, actif=True).count()
-    jours = (au - du).days + 1
-    capacite = nb_chambres * jours
-    sejours_l = list(Sejour.objects.filter(
-        societe_id=sid, statut__in=["arrivee", "terminee"],
-        date_arrivee__lte=au))
-    nuitees = 0
-    revenu = 0.0
-    for s in sejours_l:
-        fin = s.date_depart or s.date_depart_prevue
-        # day-use (arrivée = départ) : facturé et compté 1 nuit minimum
-        fin = max(fin, s.date_arrivee + timedelta(days=1))
-        debut = max(s.date_arrivee, du)
-        fin_bornee = min(fin, au + timedelta(days=1))
-        n = max(0, (fin_bornee - debut).days)
-        nuitees += n
-        revenu = round(revenu + n * float(s.tarif_nuit_usd or 0), 2)
-    return Response({
-        "du": du.isoformat(), "au": au.isoformat(),
-        "nb_chambres": nb_chambres, "nuitees_vendues": nuitees,
-        "taux_occupation_pct": round(nuitees / capacite * 100, 1)
-        if capacite else 0.0,
-        "revenu_hebergement_usd": revenu,
-        "adr_usd": round(revenu / nuitees, 2) if nuitees else 0.0,
-        "revpar_usd": round(revenu / capacite, 2) if capacite else 0.0})
+    @action(detail=False, methods=['get'])
+    def rapport(self, request):
+        """Taux d'occupation, nuitées, revenus — indicateurs standard (ADR, RevPAR)."""
+        sid = _societe_param(request)
+        _acces(request, sid)
+        try:
+            du = date.fromisoformat(request.query_params.get("du"))
+            au = date.fromisoformat(request.query_params.get("au"))
+        except (TypeError, ValueError):
+            au = date.today()
+            du = au.replace(day=1)
+        if au < du:
+            du, au = au, du
+        nb_chambres = Chambre.objects.filter(societe_id=sid, actif=True).count()
+        jours = (au - du).days + 1
+        capacite = nb_chambres * jours
+        sejours_l = list(Sejour.objects.filter(
+            societe_id=sid, statut__in=["arrivee", "terminee"],
+            date_arrivee__lte=au))
+        nuitees = 0
+        revenu = 0.0
+        for s in sejours_l:
+            fin = s.date_depart or s.date_depart_prevue
+            # day-use (arrivée = départ) : facturé et compté 1 nuit minimum
+            fin = max(fin, s.date_arrivee + timedelta(days=1))
+            debut = max(s.date_arrivee, du)
+            fin_bornee = min(fin, au + timedelta(days=1))
+            n = max(0, (fin_bornee - debut).days)
+            nuitees += n
+            revenu = round(revenu + n * float(s.tarif_nuit_usd or 0), 2)
+        return Response({
+            "du": du.isoformat(), "au": au.isoformat(),
+            "nb_chambres": nb_chambres, "nuitees_vendues": nuitees,
+            "taux_occupation_pct": round(nuitees / capacite * 100, 1)
+            if capacite else 0.0,
+            "revenu_hebergement_usd": revenu,
+            "adr_usd": round(revenu / nuitees, 2) if nuitees else 0.0,
+            "revpar_usd": round(revenu / capacite, 2) if capacite else 0.0})
+
+
+# Anciens points d’entrée conservés pour les intégrations existantes.
+chambres = ChambreViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='chambre')
+maj_chambre = ChambreViewSet.as_view({'patch': 'partial_update'}, http_method_names=['patch', 'options'], detail=True, basename='chambre')
+clients = ClientViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='client')
+sejours = SejourViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='sejour')
+maj_sejour = SejourViewSet.as_view({'patch': 'partial_update'}, http_method_names=['patch', 'options'], detail=True, basename='sejour')
+checkin = SejourViewSet.as_view({'post': 'checkin'}, http_method_names=['post', 'options'], detail=True, basename='sejour')
+annuler_sejour = SejourViewSet.as_view({'post': 'annuler'}, http_method_names=['post', 'options'], detail=True, basename='sejour')
+folio = SejourViewSet.as_view({'get': 'folio'}, http_method_names=['get', 'options'], detail=True, basename='sejour')
+ajouter_ligne = SejourViewSet.as_view({'post': 'lignes'}, http_method_names=['post', 'options'], detail=True, basename='sejour')
+supprimer_ligne = SejourViewSet.as_view({'delete': 'supprimer_ligne'}, http_method_names=['delete', 'options'], detail=True, basename='sejour')
+checkout = SejourViewSet.as_view({'post': 'checkout'}, http_method_names=['post', 'options'], detail=True, basename='sejour')
+planning = HotelViewSet.as_view({'get': 'planning'}, http_method_names=['get', 'options'], detail=False, basename='hotel')
+rapport_hotel = HotelViewSet.as_view({'get': 'rapport'}, http_method_names=['get', 'options'], detail=False, basename='hotel')

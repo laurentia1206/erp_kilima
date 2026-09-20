@@ -7,13 +7,25 @@ réquisitions liées à tout moment, maintenance immobilisante, rentabilité.
 """
 from __future__ import annotations
 
+from rest_framework.decorators import action
+from core.viewsets import MetierModelViewSet, MetierViewSet
+from apps.transport.models import Camion
+from apps.transport.serializers import CamionSerializer
+from apps.transport.models import Chauffeur
+from apps.transport.serializers import ChauffeurSerializer
+from apps.transport.models import ContratTransport
+from apps.transport.serializers import ContratTransportSerializer
+from apps.transport.models import Course
+from apps.transport.serializers import CourseSerializer
+from apps.maintenance.models import InterventionCamion
+from apps.transport.serializers import InterventionCamionSerializer
+
 from apps.stocks.catalogue import tiers_disponible
 
 from datetime import date
 
 from django.db import transaction
 from django.db.models import Sum
-from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from apps.comptabilite import services as comptabilite
@@ -40,36 +52,6 @@ def _role_validation(societe_id) -> str:
     return services.get_parametre("transport.role_validation", societe_id, "DFI")
 
 
-@api_view(["GET", "POST"])
-def config_transport(request):
-    sid = _societe_param(request)
-    roles = assert_acces_societe(request.user, sid)
-    if request.method == "POST":
-        assert_role(roles, {"DFI", "PRESIDENT", "ADMIN_SYS"})
-        payload = request.data or {}
-        code = (payload.get("role_validation") or "").strip().upper()
-        if len(code) < 2:
-            return refus({"detail": "role_validation requis."}, status=422)
-        if not Role.objects.filter(code=code).exists():
-            return refus({"detail": f"Rôle {code} inconnu."}, status=400)
-        p = Parametre.objects.filter(cle="transport.role_validation",
-                                     societe_id=sid).first()
-        if p:
-            p.valeur = code
-            p.save(update_fields=["valeur"])
-        else:
-            Parametre.objects.create(societe_id=sid, cle="transport.role_validation",
-                                     valeur=code, type_valeur="string",
-                                     description="Rôle validateur des fiches de course")
-        services.enregistrer_audit(request.user.id, "CONFIG", "transport", None, None,
-                                   {"role_validation": code})
-        return Response({"role_validation": code})
-    assert_role(roles, ROLES)
-    tous = [{"code": r.code, "libelle": r.libelle}
-            for r in Role.objects.all().order_by("code")]
-    return Response({"role_validation": _role_validation(sid), "roles": tous})
-
-
 # ═══ Flotte ══════════════════════════════════════════════════════════
 def _camion_dict(c: Camion) -> dict:
     prop = Tiers.objects.filter(id=c.proprietaire_tiers_id).first() \
@@ -90,76 +72,100 @@ def _camion_dict(c: Camion) -> dict:
             "actif": bool(c.actif)}
 
 
-@api_view(["GET", "POST"])
-def camions(request):
-    sid = _societe_param(request)
-    roles = assert_acces_societe(request.user, sid)
-    assert_role(roles, ROLES)
-    if request.method == "POST":
+class CamionViewSet(MetierModelViewSet):
+    """Ressource Camion ; contrats HTTP et validations métier conservés."""
+    queryset = Camion.objects.none()
+    serializer_class = CamionSerializer
+    lookup_url_kwarg = 'camion_id'
+
+    def list(self, request):
+        return self._traiter_camions(request)
+
+
+    def create(self, request):
+        return self._traiter_camions(request)
+
+
+    def _traiter_camions(self, request):
+        sid = _societe_param(request)
+        roles = assert_acces_societe(request.user, sid)
+        assert_role(roles, ROLES)
+        if request.method == "POST":
+            payload = request.data or {}
+            if payload.get("type") == "sous_traite" \
+                    and not payload.get("proprietaire_tiers_id"):
+                return refus({"detail": "Un camion sous-traité doit avoir un propriétaire "
+                                        "(tiers fournisseur)."}, status=400)
+            immat = (payload.get("immatriculation") or "").strip().upper()
+            if len(immat) < 2:
+                return refus({"detail": "immatriculation requise."}, status=422)
+            if Camion.objects.filter(societe_id=sid, immatriculation=immat).exists():
+                return refus({"detail": f"Le camion {immat} existe déjà."}, status=409)
+            c = Camion.objects.create(
+                societe_id=sid, immatriculation=immat, marque=payload.get("marque"),
+                capacite_tonnes=payload.get("capacite_tonnes", 0),
+                consommation_l_100km=payload.get("consommation_l_100km"),
+                type=payload.get("type", "propre"),
+                proprietaire_tiers_id=payload.get("proprietaire_tiers_id"),
+                remuneration_mode=payload.get("remuneration_mode"),
+                remuneration_valeur=payload.get("remuneration_valeur"))
+            return Response(_camion_dict(c), status=201)
+        cs = Camion.objects.filter(societe_id=sid).order_by("immatriculation")
+        return Response([_camion_dict(c) for c in cs])
+
+
+    def partial_update(self, request, camion_id):
+        c = Camion.objects.filter(id=camion_id).first()
+        if not c:
+            return refus({"detail": "Camion introuvable."}, status=404)
+        roles = assert_acces_societe(request.user, c.societe_id)
+        assert_role(roles, ROLES)
         payload = request.data or {}
-        if payload.get("type") == "sous_traite" \
-                and not payload.get("proprietaire_tiers_id"):
-            return refus({"detail": "Un camion sous-traité doit avoir un propriétaire "
-                                    "(tiers fournisseur)."}, status=400)
-        immat = (payload.get("immatriculation") or "").strip().upper()
-        if len(immat) < 2:
-            return refus({"detail": "immatriculation requise."}, status=422)
-        if Camion.objects.filter(societe_id=sid, immatriculation=immat).exists():
-            return refus({"detail": f"Le camion {immat} existe déjà."}, status=409)
-        c = Camion.objects.create(
-            societe_id=sid, immatriculation=immat, marque=payload.get("marque"),
-            capacite_tonnes=payload.get("capacite_tonnes", 0),
-            consommation_l_100km=payload.get("consommation_l_100km"),
-            type=payload.get("type", "propre"),
-            proprietaire_tiers_id=payload.get("proprietaire_tiers_id"),
-            remuneration_mode=payload.get("remuneration_mode"),
-            remuneration_valeur=payload.get("remuneration_valeur"))
-        return Response(_camion_dict(c), status=201)
-    cs = Camion.objects.filter(societe_id=sid).order_by("immatriculation")
-    return Response([_camion_dict(c) for c in cs])
-
-
-@api_view(["PATCH"])
-def maj_camion(request, camion_id):
-    c = Camion.objects.filter(id=camion_id).first()
-    if not c:
-        return refus({"detail": "Camion introuvable."}, status=404)
-    roles = assert_acces_societe(request.user, c.societe_id)
-    assert_role(roles, ROLES)
-    payload = request.data or {}
-    for f in ("marque", "capacite_tonnes", "consommation_l_100km",
-              "proprietaire_tiers_id", "remuneration_mode", "remuneration_valeur",
-              "actif"):
-        v = payload.get(f)
-        if v is not None:
-            setattr(c, f, v)
-    c.save()
-    return Response(_camion_dict(c))
+        for f in ("marque", "capacite_tonnes", "consommation_l_100km",
+                  "proprietaire_tiers_id", "remuneration_mode", "remuneration_valeur",
+                  "actif"):
+            v = payload.get(f)
+            if v is not None:
+                setattr(c, f, v)
+        c.save()
+        return Response(_camion_dict(c))
 
 
 # ═══ Chauffeurs ══════════════════════════════════════════════════════
-@api_view(["GET", "POST"])
-def chauffeurs(request):
-    sid = _societe_param(request)
-    roles = assert_acces_societe(request.user, sid)
-    assert_role(roles, ROLES)
-    if request.method == "POST":
-        payload = request.data or {}
-        nom = (payload.get("nom") or "").strip()
-        if len(nom) < 2:
-            return refus({"detail": "nom requis."}, status=422)
-        with transaction.atomic():
-            tiers = Tiers.objects.create(societe_id=sid, type="personnel",
-                                         code=f"CHF-{nom.upper()[:16]}", nom=nom)
-            c = Chauffeur.objects.create(societe_id=sid, nom=nom,
-                                         telephone=payload.get("telephone"),
-                                         numero_permis=payload.get("numero_permis"),
-                                         tiers_id=tiers.id)
-        return Response({"id": str(c.id), "nom": c.nom}, status=201)
-    return Response([{"id": str(c.id), "nom": c.nom, "telephone": c.telephone,
-                      "numero_permis": c.numero_permis, "actif": bool(c.actif)}
-                     for c in Chauffeur.objects.filter(societe_id=sid, actif=True)
-                     .order_by("nom")])
+class ChauffeurViewSet(MetierModelViewSet):
+    """Ressource Chauffeur ; contrats HTTP et validations métier conservés."""
+    queryset = Chauffeur.objects.none()
+    serializer_class = ChauffeurSerializer
+
+    def list(self, request):
+        return self._traiter_chauffeurs(request)
+
+
+    def create(self, request):
+        return self._traiter_chauffeurs(request)
+
+
+    def _traiter_chauffeurs(self, request):
+        sid = _societe_param(request)
+        roles = assert_acces_societe(request.user, sid)
+        assert_role(roles, ROLES)
+        if request.method == "POST":
+            payload = request.data or {}
+            nom = (payload.get("nom") or "").strip()
+            if len(nom) < 2:
+                return refus({"detail": "nom requis."}, status=422)
+            with transaction.atomic():
+                tiers = Tiers.objects.create(societe_id=sid, type="personnel",
+                                             code=f"CHF-{nom.upper()[:16]}", nom=nom)
+                c = Chauffeur.objects.create(societe_id=sid, nom=nom,
+                                             telephone=payload.get("telephone"),
+                                             numero_permis=payload.get("numero_permis"),
+                                             tiers_id=tiers.id)
+            return Response({"id": str(c.id), "nom": c.nom}, status=201)
+        return Response([{"id": str(c.id), "nom": c.nom, "telephone": c.telephone,
+                          "numero_permis": c.numero_permis, "actif": bool(c.actif)}
+                         for c in Chauffeur.objects.filter(societe_id=sid, actif=True)
+                         .order_by("nom")])
 
 
 # ═══ Contrats de transport ═══════════════════════════════════════════
@@ -177,65 +183,77 @@ def _contrat_dict(c: ContratTransport) -> dict:
                        for x in TarifContrat.objects.filter(contrat_id=c.id)]}
 
 
-@api_view(["GET", "POST"])
-def contrats(request):
-    sid = _societe_param(request)
-    roles = assert_acces_societe(request.user, sid)
-    assert_role(roles, ROLES)
-    if request.method == "POST":
+class ContratViewSet(MetierModelViewSet):
+    """Ressource Contrat ; contrats HTTP et validations métier conservés."""
+    queryset = ContratTransport.objects.none()
+    serializer_class = ContratTransportSerializer
+    lookup_url_kwarg = 'contrat_id'
+
+    def list(self, request):
+        return self._traiter_contrats(request)
+
+
+    def create(self, request):
+        return self._traiter_contrats(request)
+
+
+    def _traiter_contrats(self, request):
+        sid = _societe_param(request)
+        roles = assert_acces_societe(request.user, sid)
+        assert_role(roles, ROLES)
+        if request.method == "POST":
+            payload = request.data or {}
+            societe = Societe.objects.filter(id=sid).first()
+            tiers = Tiers.objects.filter(id=payload.get("client_tiers_id")).first()
+            if not tiers_disponible(tiers, sid) or tiers.type != "client":
+                return refus({"detail": "Sélectionnez un client."}, status=400)
+            if not payload.get("date_debut") or len((payload.get("libelle") or "")
+                                                    .strip()) < 2:
+                return refus({"detail": "libelle et date_debut requis."}, status=422)
+            with transaction.atomic():
+                debut = date.fromisoformat(payload["date_debut"])
+                c = ContratTransport.objects.create(
+                    societe_id=sid,
+                    numero=services.next_numero("contrat_transport", debut.year,
+                                                societe.code, societe.id),
+                    libelle=payload["libelle"].strip(), client_tiers_id=tiers.id,
+                    date_debut=debut,
+                    date_fin=date.fromisoformat(payload["date_fin"])
+                    if payload.get("date_fin") else None,
+                    note=(payload.get("note") or "").strip() or None,
+                    created_by=request.user.id, created_at=services.maintenant())
+                for t in payload.get("tarifs") or []:
+                    TarifContrat.objects.create(contrat_id=c.id,
+                                                trajet=(t.get("trajet") or "").strip(),
+                                                mode=t.get("mode", "tonne"),
+                                                prix=t.get("prix", 0))
+            return Response(_contrat_dict(c), status=201)
+        cs = ContratTransport.objects.filter(societe_id=sid).order_by("-created_at")
+        return Response([_contrat_dict(c) for c in cs])
+
+
+    def update(self, request, contrat_id):
+        c = ContratTransport.objects.filter(id=contrat_id).first()
+        if not c:
+            return refus({"detail": "Contrat introuvable."}, status=404)
+        roles = assert_acces_societe(request.user, c.societe_id)
+        assert_role(roles, ROLES)
         payload = request.data or {}
-        societe = Societe.objects.filter(id=sid).first()
-        tiers = Tiers.objects.filter(id=payload.get("client_tiers_id")).first()
-        if not tiers_disponible(tiers, sid) or tiers.type != "client":
-            return refus({"detail": "Sélectionnez un client."}, status=400)
-        if not payload.get("date_debut") or len((payload.get("libelle") or "")
-                                                .strip()) < 2:
-            return refus({"detail": "libelle et date_debut requis."}, status=422)
         with transaction.atomic():
-            debut = date.fromisoformat(payload["date_debut"])
-            c = ContratTransport.objects.create(
-                societe_id=sid,
-                numero=services.next_numero("contrat_transport", debut.year,
-                                            societe.code, societe.id),
-                libelle=payload["libelle"].strip(), client_tiers_id=tiers.id,
-                date_debut=debut,
-                date_fin=date.fromisoformat(payload["date_fin"])
-                if payload.get("date_fin") else None,
-                note=(payload.get("note") or "").strip() or None,
-                created_by=request.user.id, created_at=services.maintenant())
+            c.libelle = (payload.get("libelle") or "").strip()
+            c.client_tiers_id = payload.get("client_tiers_id")
+            c.date_debut = date.fromisoformat(payload["date_debut"])
+            c.date_fin = date.fromisoformat(payload["date_fin"]) \
+                if payload.get("date_fin") else None
+            c.note = (payload.get("note") or "").strip() or None
+            c.save()
+            TarifContrat.objects.filter(contrat_id=c.id).delete()
             for t in payload.get("tarifs") or []:
                 TarifContrat.objects.create(contrat_id=c.id,
                                             trajet=(t.get("trajet") or "").strip(),
                                             mode=t.get("mode", "tonne"),
                                             prix=t.get("prix", 0))
-        return Response(_contrat_dict(c), status=201)
-    cs = ContratTransport.objects.filter(societe_id=sid).order_by("-created_at")
-    return Response([_contrat_dict(c) for c in cs])
-
-
-@api_view(["PUT"])
-def modifier_contrat(request, contrat_id):
-    c = ContratTransport.objects.filter(id=contrat_id).first()
-    if not c:
-        return refus({"detail": "Contrat introuvable."}, status=404)
-    roles = assert_acces_societe(request.user, c.societe_id)
-    assert_role(roles, ROLES)
-    payload = request.data or {}
-    with transaction.atomic():
-        c.libelle = (payload.get("libelle") or "").strip()
-        c.client_tiers_id = payload.get("client_tiers_id")
-        c.date_debut = date.fromisoformat(payload["date_debut"])
-        c.date_fin = date.fromisoformat(payload["date_fin"]) \
-            if payload.get("date_fin") else None
-        c.note = (payload.get("note") or "").strip() or None
-        c.save()
-        TarifContrat.objects.filter(contrat_id=c.id).delete()
-        for t in payload.get("tarifs") or []:
-            TarifContrat.objects.create(contrat_id=c.id,
-                                        trajet=(t.get("trajet") or "").strip(),
-                                        mode=t.get("mode", "tonne"),
-                                        prix=t.get("prix", 0))
-    return Response(_contrat_dict(c))
+        return Response(_contrat_dict(c))
 
 
 # ═══ Fiches de course ════════════════════════════════════════════════
@@ -344,481 +362,384 @@ def _course_ou_404(request, course_id):
     return c, roles
 
 
-@api_view(["GET", "POST"])
-def courses(request):
-    sid = _societe_param(request)
-    roles = assert_acces_societe(request.user, sid)
-    assert_role(roles, ROLES)
-    if request.method == "POST":
+class CourseViewSet(MetierModelViewSet):
+    """Ressource Course ; contrats HTTP et validations métier conservés."""
+    queryset = Course.objects.none()
+    serializer_class = CourseSerializer
+    lookup_url_kwarg = 'course_id'
+
+    def list(self, request):
+        return self._traiter_courses(request)
+
+
+    def create(self, request):
+        return self._traiter_courses(request)
+
+
+    def _traiter_courses(self, request):
+        sid = _societe_param(request)
+        roles = assert_acces_societe(request.user, sid)
+        assert_role(roles, ROLES)
+        if request.method == "POST":
+            payload = request.data or {}
+            societe = Societe.objects.filter(id=sid).first()
+            cam = Camion.objects.filter(id=payload.get("camion_id")).first()
+            if not cam or str(cam.societe_id) != str(sid) or not cam.actif:
+                return refus({"detail": "Camion invalide."}, status=400)
+            cli = Tiers.objects.filter(id=payload.get("client_tiers_id")).first()
+            if not tiers_disponible(cli, sid) or cli.type != "client":
+                return refus({"detail": "Sélectionnez un client."}, status=400)
+            if not payload.get("tonnage_prevu") or float(payload["tonnage_prevu"]) <= 0 \
+                    or not (payload.get("origine") or "").strip() \
+                    or not (payload.get("destination") or "").strip() \
+                    or not (payload.get("marchandise") or "").strip():
+                return refus({"detail": "origine, destination, marchandise et tonnage > 0 "
+                                        "requis."}, status=422)
+            with transaction.atomic():
+                jour = date.fromisoformat(payload["date_course"]) \
+                    if payload.get("date_course") else date.today()
+                c = Course.objects.create(
+                    societe_id=sid,
+                    numero=services.next_numero("course", jour.year, societe.code,
+                                                societe.id),
+                    date_course=jour, client_tiers_id=cli.id,
+                    contrat_id=payload.get("contrat_id"), camion_id=cam.id,
+                    chauffeur_id=payload.get("chauffeur_id"),
+                    origine=payload["origine"].strip(),
+                    destination=payload["destination"].strip(),
+                    marchandise=payload["marchandise"].strip(),
+                    tonnage_prevu=payload["tonnage_prevu"],
+                    unite=(payload.get("unite") or "tonnes").strip(),
+                    tarif_mode=payload.get("tarif_mode", "tonne"),
+                    prix_unitaire=payload.get("prix_unitaire", 0),
+                    requisition_id=payload.get("requisition_id"),
+                    created_by=request.user.id, created_at=services.maintenant())
+                if payload.get("requisition_id"):
+                    CourseRequisition.objects.create(
+                        course_id=c.id, requisition_id=payload["requisition_id"])
+                services.enregistrer_audit(request.user.id, "INSERT", "course", c.id, None,
+                                           {"numero": c.numero,
+                                            "camion": cam.immatriculation})
+            return Response(_course_dict(c), status=201)
+        q = Course.objects.filter(societe_id=sid)
+        statut = request.query_params.get("statut")
+        if statut:
+            q = q.filter(statut=statut)
+        return Response([_course_dict(c) for c in q.order_by("-created_at")])
+
+
+    @action(detail=True, methods=['post'])
+    def prendre_en_charge(self, request, course_id):
+        """Une demande de course (PO intersociété) devient une fiche brouillon."""
+        c, _ = _course_ou_404(request, course_id)
+        if not c:
+            return refus({"detail": "Course introuvable."}, status=404)
+        if c.statut != "demande":
+            return refus({"detail": "Cette course n'est pas une demande en attente."},
+                         status=409)
+        if c.commande_origine_id:
+            cmd = Commande.objects.filter(id=c.commande_origine_id).first()
+            dv = Devis.objects.filter(id=cmd.devis_lie_id).first() \
+                if cmd and cmd.devis_lie_id else None
+            if dv and dv.statut == "annule":
+                return refus({"detail": "La commande d'origine a été annulée par le "
+                                        "vendeur."}, status=409)
+            if not dv or dv.statut != "confirme":
+                return refus({"detail": "En attente : le vendeur n'a pas encore confirmé "
+                                        "la commande — la course sera prenable en charge "
+                                        "dès sa confirmation."}, status=409)
         payload = request.data or {}
-        societe = Societe.objects.filter(id=sid).first()
         cam = Camion.objects.filter(id=payload.get("camion_id")).first()
-        if not cam or str(cam.societe_id) != str(sid) or not cam.actif:
+        if not cam or str(cam.societe_id) != str(c.societe_id) or not cam.actif:
             return refus({"detail": "Camion invalide."}, status=400)
-        cli = Tiers.objects.filter(id=payload.get("client_tiers_id")).first()
-        if not tiers_disponible(cli, sid) or cli.type != "client":
-            return refus({"detail": "Sélectionnez un client."}, status=400)
-        if not payload.get("tonnage_prevu") or float(payload["tonnage_prevu"]) <= 0 \
-                or not (payload.get("origine") or "").strip() \
-                or not (payload.get("destination") or "").strip() \
-                or not (payload.get("marchandise") or "").strip():
-            return refus({"detail": "origine, destination, marchandise et tonnage > 0 "
-                                    "requis."}, status=422)
         with transaction.atomic():
-            jour = date.fromisoformat(payload["date_course"]) \
-                if payload.get("date_course") else date.today()
-            c = Course.objects.create(
-                societe_id=sid,
-                numero=services.next_numero("course", jour.year, societe.code,
-                                            societe.id),
-                date_course=jour, client_tiers_id=cli.id,
-                contrat_id=payload.get("contrat_id"), camion_id=cam.id,
-                chauffeur_id=payload.get("chauffeur_id"),
-                origine=payload["origine"].strip(),
-                destination=payload["destination"].strip(),
-                marchandise=payload["marchandise"].strip(),
-                tonnage_prevu=payload["tonnage_prevu"],
-                unite=(payload.get("unite") or "tonnes").strip(),
-                tarif_mode=payload.get("tarif_mode", "tonne"),
-                prix_unitaire=payload.get("prix_unitaire", 0),
-                requisition_id=payload.get("requisition_id"),
-                created_by=request.user.id, created_at=services.maintenant())
+            c.camion_id = cam.id
+            c.chauffeur_id = payload.get("chauffeur_id")
+            c.contrat_id = payload.get("contrat_id")
+            if payload.get("tonnage_prevu"):
+                c.tonnage_prevu = payload["tonnage_prevu"]
+            if payload.get("unite"):
+                c.unite = payload["unite"].strip()
+            c.tarif_mode = payload.get("tarif_mode", "tonne")
+            c.prix_unitaire = payload.get("prix_unitaire", 0)
+            if payload.get("origine"):
+                c.origine = payload["origine"].strip()
+            if payload.get("destination"):
+                c.destination = payload["destination"].strip()
             if payload.get("requisition_id"):
-                CourseRequisition.objects.create(
-                    course_id=c.id, requisition_id=payload["requisition_id"])
-            services.enregistrer_audit(request.user.id, "INSERT", "course", c.id, None,
-                                       {"numero": c.numero,
-                                        "camion": cam.immatriculation})
-        return Response(_course_dict(c), status=201)
-    q = Course.objects.filter(societe_id=sid)
-    statut = request.query_params.get("statut")
-    if statut:
-        q = q.filter(statut=statut)
-    return Response([_course_dict(c) for c in q.order_by("-created_at")])
+                CourseRequisition.objects.create(course_id=c.id,
+                                                 requisition_id=payload["requisition_id"])
+            c.statut = "brouillon"
+            c.save()
+            services.enregistrer_audit(request.user.id, "PRISE_EN_CHARGE", "course", c.id,
+                                       None, {"numero": c.numero,
+                                              "camion": cam.immatriculation})
+        return Response(_course_dict(c))
 
 
-@api_view(["POST"])
-def prendre_en_charge(request, course_id):
-    """Une demande de course (PO intersociété) devient une fiche brouillon."""
-    c, _ = _course_ou_404(request, course_id)
-    if not c:
-        return refus({"detail": "Course introuvable."}, status=404)
-    if c.statut != "demande":
-        return refus({"detail": "Cette course n'est pas une demande en attente."},
-                     status=409)
-    if c.commande_origine_id:
-        cmd = Commande.objects.filter(id=c.commande_origine_id).first()
-        dv = Devis.objects.filter(id=cmd.devis_lie_id).first() \
-            if cmd and cmd.devis_lie_id else None
-        if dv and dv.statut == "annule":
-            return refus({"detail": "La commande d'origine a été annulée par le "
-                                    "vendeur."}, status=409)
-        if not dv or dv.statut != "confirme":
-            return refus({"detail": "En attente : le vendeur n'a pas encore confirmé "
-                                    "la commande — la course sera prenable en charge "
-                                    "dès sa confirmation."}, status=409)
-    payload = request.data or {}
-    cam = Camion.objects.filter(id=payload.get("camion_id")).first()
-    if not cam or str(cam.societe_id) != str(c.societe_id) or not cam.actif:
-        return refus({"detail": "Camion invalide."}, status=400)
-    with transaction.atomic():
-        c.camion_id = cam.id
-        c.chauffeur_id = payload.get("chauffeur_id")
-        c.contrat_id = payload.get("contrat_id")
-        if payload.get("tonnage_prevu"):
-            c.tonnage_prevu = payload["tonnage_prevu"]
-        if payload.get("unite"):
-            c.unite = payload["unite"].strip()
-        c.tarif_mode = payload.get("tarif_mode", "tonne")
-        c.prix_unitaire = payload.get("prix_unitaire", 0)
-        if payload.get("origine"):
-            c.origine = payload["origine"].strip()
-        if payload.get("destination"):
-            c.destination = payload["destination"].strip()
-        if payload.get("requisition_id"):
-            CourseRequisition.objects.create(course_id=c.id,
-                                             requisition_id=payload["requisition_id"])
-        c.statut = "brouillon"
-        c.save()
-        services.enregistrer_audit(request.user.id, "PRISE_EN_CHARGE", "course", c.id,
-                                   None, {"numero": c.numero,
-                                          "camion": cam.immatriculation})
-    return Response(_course_dict(c))
+    @action(detail=True, methods=['post'])
+    def lier_requisition(self, request, course_id):
+        """Rattache une réquisition à la course — à tout moment (PROC-KL-02)."""
+        c, _ = _course_ou_404(request, course_id)
+        if not c:
+            return refus({"detail": "Course introuvable."}, status=404)
+        if c.statut in ("facturee", "annulee"):
+            return refus({"detail": "Course clôturée — plus de rattachement possible."},
+                         status=409)
+        req = Requisition.objects.filter(id=(request.data or {}).get("requisition_id")).first()
+        if not req or str(req.societe_id) != str(c.societe_id):
+            return refus({"detail": "Réquisition invalide pour cette société."}, status=400)
+        if CourseRequisition.objects.filter(course_id=c.id, requisition_id=req.id).exists():
+            return refus({"detail": f"{req.numero} est déjà rattachée à cette course."},
+                         status=409)
+        CourseRequisition.objects.create(course_id=c.id, requisition_id=req.id)
+        services.enregistrer_audit(request.user.id, "LIEN", "course", c.id, None,
+                                   {"numero": c.numero, "requisition": req.numero})
+        return Response(_course_dict(c))
 
 
-@api_view(["POST"])
-def lier_requisition(request, course_id):
-    """Rattache une réquisition à la course — à tout moment (PROC-KL-02)."""
-    c, _ = _course_ou_404(request, course_id)
-    if not c:
-        return refus({"detail": "Course introuvable."}, status=404)
-    if c.statut in ("facturee", "annulee"):
-        return refus({"detail": "Course clôturée — plus de rattachement possible."},
-                     status=409)
-    req = Requisition.objects.filter(id=(request.data or {}).get("requisition_id")).first()
-    if not req or str(req.societe_id) != str(c.societe_id):
-        return refus({"detail": "Réquisition invalide pour cette société."}, status=400)
-    if CourseRequisition.objects.filter(course_id=c.id, requisition_id=req.id).exists():
-        return refus({"detail": f"{req.numero} est déjà rattachée à cette course."},
-                     status=409)
-    CourseRequisition.objects.create(course_id=c.id, requisition_id=req.id)
-    services.enregistrer_audit(request.user.id, "LIEN", "course", c.id, None,
-                               {"numero": c.numero, "requisition": req.numero})
-    return Response(_course_dict(c))
+    @action(detail=True, methods=['post'])
+    def valider(self, request, course_id):
+        """Validation de la fiche course par le rôle validateur configuré."""
+        c, roles = _course_ou_404(request, course_id)
+        if not c:
+            return refus({"detail": "Course introuvable."}, status=404)
+        role_requis = _role_validation(c.societe_id)
+        if role_requis not in roles:
+            return refus({"detail": f"La validation des fiches de course est réservée au "
+                                    f"rôle {role_requis} (modifiable dans les réglages "
+                                    f"transport)."}, status=403)
+        if c.statut != "brouillon":
+            return refus({"detail": "Seule une fiche brouillon se valide."}, status=409)
+        c.statut = "validee"
+        c.valide_par = request.user.id
+        c.save(update_fields=["statut", "valide_par"])
+        services.enregistrer_audit(request.user.id, "VALIDATION", "course", c.id, None,
+                                   {"numero": c.numero})
+        return Response(_course_dict(c))
 
 
-@api_view(["POST"])
-def valider_course(request, course_id):
-    """Validation de la fiche course par le rôle validateur configuré."""
-    c, roles = _course_ou_404(request, course_id)
-    if not c:
-        return refus({"detail": "Course introuvable."}, status=404)
-    role_requis = _role_validation(c.societe_id)
-    if role_requis not in roles:
-        return refus({"detail": f"La validation des fiches de course est réservée au "
-                                f"rôle {role_requis} (modifiable dans les réglages "
-                                f"transport)."}, status=403)
-    if c.statut != "brouillon":
-        return refus({"detail": "Seule une fiche brouillon se valide."}, status=409)
-    c.statut = "validee"
-    c.valide_par = request.user.id
-    c.save(update_fields=["statut", "valide_par"])
-    services.enregistrer_audit(request.user.id, "VALIDATION", "course", c.id, None,
-                               {"numero": c.numero})
-    return Response(_course_dict(c))
-
-
-@api_view(["POST"])
-def depart_course(request, course_id):
-    """Départ : bloqué si camion indisponible ou avance carburant non décaissée."""
-    c, _ = _course_ou_404(request, course_id)
-    if not c:
-        return refus({"detail": "Course introuvable."}, status=404)
-    if c.statut != "validee":
-        return refus({"detail": "La fiche doit d'abord être validée par le DFI."},
-                     status=409)
-    cam = Camion.objects.filter(id=c.camion_id).first()
-    if cam.statut == "immobilise":
-        return refus({"detail": f"Camion {cam.immatriculation} immobilisé "
-                                f"({cam.motif_immobilisation or 'maintenance'}) — "
-                                f"inaffectable."}, status=409)
-    if cam.statut == "en_course":
-        return refus({"detail": f"Camion {cam.immatriculation} déjà en course."},
-                     status=409)
-    req_ids = [r.id for r in _reqs_course(c)]
-    if req_ids:
-        avance = Avance.objects.filter(
-            ordre_depense_id__in=OrdreDepense.objects.filter(
-                requisition_id__in=req_ids).values("id")).first()
-        if not avance:
-            return refus({"detail": "L'avance carburant liée n'est pas encore "
-                                    "décaissée — pas de départ sans carburant mis "
-                                    "(PROC-KL-02)."}, status=409)
-    # Course d'un PO du groupe : pas de départ tant que le vendeur n'a pas
-    # déclaré le chargement (l'étape « Chargement » précède le départ)
-    if c.commande_origine_id:
-        cmd_po = Commande.objects.filter(id=c.commande_origine_id).first()
-        if cmd_po:
-            r = intersociete_lib.reception_po_resume(cmd_po)
-            if r["totaux"]["livre"] <= 0:
-                fourn = Tiers.objects.filter(id=cmd_po.tiers_id).first()
-                vendeur = Societe.objects.filter(id=fourn.societe_liee_id).first() \
-                    if fourn and fourn.societe_liee_id else None
-                return refus({"detail": f"Départ bloqué : le vendeur "
-                                        f"({vendeur.nom if vendeur else '?'}) n'a pas "
-                                        f"encore déclaré le chargement de la "
-                                        f"marchandise."}, status=409)
-    c.statut = "en_cours"
-    c.heure_depart = services.maintenant()
-    km = (request.data or {}).get("km_depart")
-    if km is not None and str(km) != "":
-        try:
-            c.km_depart = round(float(km), 1)
-        except (TypeError, ValueError):
-            return refus({"detail": "km_depart invalide."}, status=422)
-    c.save(update_fields=["statut", "heure_depart", "km_depart"])
-    cam.statut = "en_course"
-    cam.save(update_fields=["statut"])
-    services.enregistrer_audit(request.user.id, "DEPART", "course", c.id, None,
-                               {"numero": c.numero})
-    return Response(_course_dict(c))
-
-
-@api_view(["POST"])
-def arrivee_course(request, course_id):
-    c, _ = _course_ou_404(request, course_id)
-    if not c:
-        return refus({"detail": "Course introuvable."}, status=404)
-    if c.statut != "en_cours":
-        return refus({"detail": "La course n'est pas en route."}, status=409)
-    c.statut = "arrivee"
-    c.save(update_fields=["statut"])
-    services.enregistrer_audit(request.user.id, "ARRIVEE", "course", c.id, None,
-                               {"numero": c.numero})
-    return Response(_course_dict(c))
-
-
-@api_view(["POST"])
-def retour_course(request, course_id):
-    """Clôture au retour (PROC-KL-03) : tonnage livré, sous-traitance figée."""
-    c, _ = _course_ou_404(request, course_id)
-    if not c:
-        return refus({"detail": "Course introuvable."}, status=404)
-    if c.statut not in ("en_cours", "arrivee", "receptionnee"):
-        return refus({"detail": "La course n'est pas en cours."}, status=409)
-    # Course d'un PO : le retour se déclare après l'arrivée (étapes dans l'ordre)
-    if c.commande_origine_id and c.statut == "en_cours":
-        return refus({"detail": "Retour bloqué : signalez d'abord l'arrivée à "
-                                "destination (le déchargement et la réception de "
-                                "l'acheteur précèdent le retour)."}, status=409)
-    payload = request.data or {}
-    if not payload.get("tonnage_livre") or float(payload["tonnage_livre"]) <= 0:
-        return refus({"detail": "tonnage_livre > 0 requis."}, status=422)
-    cam = Camion.objects.filter(id=c.camion_id).first()
-    km = payload.get("km_retour")
-    if km is not None and str(km) != "":
-        try:
-            km = round(float(km), 1)
-        except (TypeError, ValueError):
-            return refus({"detail": "km_retour invalide."}, status=422)
-        if c.km_depart is not None and km < float(c.km_depart):
-            return refus({"detail": f"km_retour ({km}) inférieur au compteur de "
-                                    f"départ ({float(c.km_depart)})."}, status=422)
-    else:
-        km = None
-    with transaction.atomic():
-        c.tonnage_livre = payload["tonnage_livre"]
-        c.incidents = (payload.get("incidents") or "").strip() or None
-        c.heure_retour = services.maintenant()
-        if km is not None:
-            c.km_retour = km
-        c.statut = "livree"
-        cam.statut = "disponible"
-
-        # ── Sous-traitance : coût figé + facture fournisseur (dette 401) ──
-        if cam.type == "sous_traite":
-            mode = payload.get("st_mode") or cam.remuneration_mode
-            valeur = payload["st_valeur"] if payload.get("st_valeur") is not None else (
-                float(cam.remuneration_valeur)
-                if cam.remuneration_valeur is not None else None)
-            if not mode or valeur is None:
-                return refus({"detail": "Camion sous-traité : précisez la rémunération "
-                                        "(forfait ou % du prix client)."}, status=400)
-            recette = _recette(c)
-            cout = round(float(valeur), 2) if mode == "forfait" \
-                else round(recette * float(valeur) / 100, 2)
-            c.st_mode, c.st_valeur, c.st_cout = mode, valeur, cout
-            prop = Tiers.objects.filter(id=cam.proprietaire_tiers_id).first()
-            societe = Societe.objects.filter(id=c.societe_id).first()
-            numero = services.next_numero("facture_achat", date.today().year,
-                                          societe.code, societe.id)
-            fa = Facture.objects.create(
-                societe_id=c.societe_id, type="achat", numero=numero, tiers_id=prop.id,
-                date_facture=date.today(), reference=c.numero, total_ht=cout,
-                total_ttc=cout, statut="validee", created_by=request.user.id,
-                created_at=services.maintenant())
-            LigneFacture.objects.create(
-                facture_id=fa.id, designation=(
-                    f"Sous-traitance transport {c.numero} — camion "
-                    f"{cam.immatriculation} ({c.origine} → {c.destination})"),
-                qte=1, prix_unitaire=cout, taux_tva=0, montant_ht=cout, montant_tva=0)
-            cpt_st = comptabilite._compte("compte_sous_traitance", c.societe_id)
-            ecr = comptabilite.post_ecriture(
-                c.societe_id, "AC", "Achats", "achat", date.today(),
-                f"Sous-traitance {c.numero} — {prop.nom}",
-                [{"sens": "D", "compte": cpt_st, "montant_usd": cout,
-                  "libelle": f"Sous-traitance {c.numero} ({cam.immatriculation})"},
-                 {"sens": "C",
-                  "compte": comptabilite._compte("compte_fournisseur", c.societe_id),
-                  "montant_usd": cout, "tiers_id": prop.id,
-                  "libelle": f"Dû à {prop.nom} — {c.numero}"}],
-                "sous_traitance", "facture", fa.id, numero, request.user.id,
-                statut="valide")
-            fa.ecriture_id = ecr.id
-            fa.save(update_fields=["ecriture_id"])
-            c.st_facture_id = fa.id
-        c.save()
-        cam.save(update_fields=["statut"])
-        services.enregistrer_audit(request.user.id, "RETOUR", "course", c.id, None,
-                                   {"numero": c.numero,
-                                    "tonnage": payload["tonnage_livre"]})
-    return Response(_course_dict(c))
-
-
-@api_view(["POST"])
-def annuler_course(request, course_id):
-    """Annulation d'une course. Avant le départ : simple. UNE COURSE PARTIE
-    (en cours / arrivée) peut aussi être interrompue — avec un MOTIF obligatoire,
-    tant qu'aucune réception n'a été constatée : le camion est libéré et, pour un
-    PO du groupe, une NOUVELLE demande de course est recréée automatiquement chez
-    le transporteur pour réorganiser le transport."""
-    c, _ = _course_ou_404(request, course_id)
-    if not c:
-        return refus({"detail": "Course introuvable."}, status=404)
-    if c.statut in ("receptionnee", "livree", "facturee", "annulee"):
-        return refus({"detail": "Cette course ne s'annule plus : la marchandise a "
-                                "été réceptionnée ou la course est clôturée."},
-                     status=409)
-    payload = request.data or {}
-    entamee = c.statut in ("en_cours", "arrivee")
-    motif = (payload.get("motif") or "").strip()
-    if entamee:
-        if not motif:
-            return refus({"detail": "Course déjà partie : un motif d'annulation est "
-                                    "obligatoire (panne, incident, retour à vide…)."},
-                         status=400)
+    @action(detail=True, methods=['post'])
+    def depart(self, request, course_id):
+        """Départ : bloqué si camion indisponible ou avance carburant non décaissée."""
+        c, _ = _course_ou_404(request, course_id)
+        if not c:
+            return refus({"detail": "Course introuvable."}, status=404)
+        if c.statut != "validee":
+            return refus({"detail": "La fiche doit d'abord être validée par le DFI."},
+                         status=409)
+        cam = Camion.objects.filter(id=c.camion_id).first()
+        if cam.statut == "immobilise":
+            return refus({"detail": f"Camion {cam.immatriculation} immobilisé "
+                                    f"({cam.motif_immobilisation or 'maintenance'}) — "
+                                    f"inaffectable."}, status=409)
+        if cam.statut == "en_course":
+            return refus({"detail": f"Camion {cam.immatriculation} déjà en course."},
+                         status=409)
+        req_ids = [r.id for r in _reqs_course(c)]
+        if req_ids:
+            avance = Avance.objects.filter(
+                ordre_depense_id__in=OrdreDepense.objects.filter(
+                    requisition_id__in=req_ids).values("id")).first()
+            if not avance:
+                return refus({"detail": "L'avance carburant liée n'est pas encore "
+                                        "décaissée — pas de départ sans carburant mis "
+                                        "(PROC-KL-02)."}, status=409)
+        # Course d'un PO du groupe : pas de départ tant que le vendeur n'a pas
+        # déclaré le chargement (l'étape « Chargement » précède le départ)
         if c.commande_origine_id:
             cmd_po = Commande.objects.filter(id=c.commande_origine_id).first()
             if cmd_po:
                 r = intersociete_lib.reception_po_resume(cmd_po)
-                t = r["totaux"]
-                if t["bon"] + t["mauvais"] + t["manquant"] > 0:
-                    return refus({"detail": "Annulation impossible : l'acheteur a "
-                                            "déjà constaté une réception sur cette "
-                                            "course."}, status=409)
-    with transaction.atomic():
-        c.statut = "annulee"
-        if motif:
-            c.incidents = (f"{c.incidents} · " if c.incidents else "") \
-                + f"ANNULÉE : {motif}"
-        c.save(update_fields=["statut", "incidents"])
-        # libère le camion s'il était en route
-        if entamee and c.camion_id:
-            cam = Camion.objects.filter(id=c.camion_id).first()
-            if cam and cam.statut == "en_course":
-                cam.statut = "disponible"
-                cam.save(update_fields=["statut"])
-        # PO du groupe encore actif → nouvelle demande de course automatique
-        nouvelle = None
-        if c.commande_origine_id:
-            cmd_po = Commande.objects.filter(id=c.commande_origine_id).first()
-            if cmd_po and cmd_po.statut not in ("soldee", "annulee"):
+                if r["totaux"]["livre"] <= 0:
+                    fourn = Tiers.objects.filter(id=cmd_po.tiers_id).first()
+                    vendeur = Societe.objects.filter(id=fourn.societe_liee_id).first() \
+                        if fourn and fourn.societe_liee_id else None
+                    return refus({"detail": f"Départ bloqué : le vendeur "
+                                            f"({vendeur.nom if vendeur else '?'}) n'a pas "
+                                            f"encore déclaré le chargement de la "
+                                            f"marchandise."}, status=409)
+        c.statut = "en_cours"
+        c.heure_depart = services.maintenant()
+        km = (request.data or {}).get("km_depart")
+        if km is not None and str(km) != "":
+            try:
+                c.km_depart = round(float(km), 1)
+            except (TypeError, ValueError):
+                return refus({"detail": "km_depart invalide."}, status=422)
+        c.save(update_fields=["statut", "heure_depart", "km_depart"])
+        cam.statut = "en_course"
+        cam.save(update_fields=["statut"])
+        services.enregistrer_audit(request.user.id, "DEPART", "course", c.id, None,
+                                   {"numero": c.numero})
+        return Response(_course_dict(c))
+
+
+    @action(detail=True, methods=['post'])
+    def arrivee(self, request, course_id):
+        c, _ = _course_ou_404(request, course_id)
+        if not c:
+            return refus({"detail": "Course introuvable."}, status=404)
+        if c.statut != "en_cours":
+            return refus({"detail": "La course n'est pas en route."}, status=409)
+        c.statut = "arrivee"
+        c.save(update_fields=["statut"])
+        services.enregistrer_audit(request.user.id, "ARRIVEE", "course", c.id, None,
+                                   {"numero": c.numero})
+        return Response(_course_dict(c))
+
+
+    @action(detail=True, methods=['post'])
+    def retour(self, request, course_id):
+        """Clôture au retour (PROC-KL-03) : tonnage livré, sous-traitance figée."""
+        c, _ = _course_ou_404(request, course_id)
+        if not c:
+            return refus({"detail": "Course introuvable."}, status=404)
+        if c.statut not in ("en_cours", "arrivee", "receptionnee"):
+            return refus({"detail": "La course n'est pas en cours."}, status=409)
+        # Course d'un PO : le retour se déclare après l'arrivée (étapes dans l'ordre)
+        if c.commande_origine_id and c.statut == "en_cours":
+            return refus({"detail": "Retour bloqué : signalez d'abord l'arrivée à "
+                                    "destination (le déchargement et la réception de "
+                                    "l'acheteur précèdent le retour)."}, status=409)
+        payload = request.data or {}
+        if not payload.get("tonnage_livre") or float(payload["tonnage_livre"]) <= 0:
+            return refus({"detail": "tonnage_livre > 0 requis."}, status=422)
+        cam = Camion.objects.filter(id=c.camion_id).first()
+        km = payload.get("km_retour")
+        if km is not None and str(km) != "":
+            try:
+                km = round(float(km), 1)
+            except (TypeError, ValueError):
+                return refus({"detail": "km_retour invalide."}, status=422)
+            if c.km_depart is not None and km < float(c.km_depart):
+                return refus({"detail": f"km_retour ({km}) inférieur au compteur de "
+                                        f"départ ({float(c.km_depart)})."}, status=422)
+        else:
+            km = None
+        with transaction.atomic():
+            c.tonnage_livre = payload["tonnage_livre"]
+            c.incidents = (payload.get("incidents") or "").strip() or None
+            c.heure_retour = services.maintenant()
+            if km is not None:
+                c.km_retour = km
+            c.statut = "livree"
+            cam.statut = "disponible"
+
+            # ── Sous-traitance : coût figé + facture fournisseur (dette 401) ──
+            if cam.type == "sous_traite":
+                mode = payload.get("st_mode") or cam.remuneration_mode
+                valeur = payload["st_valeur"] if payload.get("st_valeur") is not None else (
+                    float(cam.remuneration_valeur)
+                    if cam.remuneration_valeur is not None else None)
+                if not mode or valeur is None:
+                    return refus({"detail": "Camion sous-traité : précisez la rémunération "
+                                            "(forfait ou % du prix client)."}, status=400)
+                recette = _recette(c)
+                cout = round(float(valeur), 2) if mode == "forfait" \
+                    else round(recette * float(valeur) / 100, 2)
+                c.st_mode, c.st_valeur, c.st_cout = mode, valeur, cout
+                prop = Tiers.objects.filter(id=cam.proprietaire_tiers_id).first()
                 societe = Societe.objects.filter(id=c.societe_id).first()
-                nouvelle = Course.objects.create(
-                    societe_id=c.societe_id,
-                    numero=services.next_numero("course", date.today().year,
-                                                societe.code, societe.id),
-                    date_course=date.today(), client_tiers_id=c.client_tiers_id,
-                    camion_id=None, origine=c.origine, destination=c.destination,
-                    marchandise=c.marchandise, tonnage_prevu=c.tonnage_prevu,
-                    unite=c.unite, tarif_mode=c.tarif_mode,
-                    prix_unitaire=c.prix_unitaire, statut="demande",
-                    commande_origine_id=c.commande_origine_id,
-                    created_by=request.user.id, created_at=services.maintenant())
-        services.enregistrer_audit(request.user.id, "ANNULATION", "course", c.id, None,
-                                   {"numero": c.numero, "motif": motif or None,
-                                    "nouvelle_demande": nouvelle.numero
-                                    if nouvelle else None})
-    out = _course_dict(c)
-    if nouvelle:
-        out["nouvelle_demande"] = nouvelle.numero
-    return Response(out)
+                numero = services.next_numero("facture_achat", date.today().year,
+                                              societe.code, societe.id)
+                fa = Facture.objects.create(
+                    societe_id=c.societe_id, type="achat", numero=numero, tiers_id=prop.id,
+                    date_facture=date.today(), reference=c.numero, total_ht=cout,
+                    total_ttc=cout, statut="validee", created_by=request.user.id,
+                    created_at=services.maintenant())
+                LigneFacture.objects.create(
+                    facture_id=fa.id, designation=(
+                        f"Sous-traitance transport {c.numero} — camion "
+                        f"{cam.immatriculation} ({c.origine} → {c.destination})"),
+                    qte=1, prix_unitaire=cout, taux_tva=0, montant_ht=cout, montant_tva=0)
+                cpt_st = comptabilite._compte("compte_sous_traitance", c.societe_id)
+                ecr = comptabilite.post_ecriture(
+                    c.societe_id, "AC", "Achats", "achat", date.today(),
+                    f"Sous-traitance {c.numero} — {prop.nom}",
+                    [{"sens": "D", "compte": cpt_st, "montant_usd": cout,
+                      "libelle": f"Sous-traitance {c.numero} ({cam.immatriculation})"},
+                     {"sens": "C",
+                      "compte": comptabilite._compte("compte_fournisseur", c.societe_id),
+                      "montant_usd": cout, "tiers_id": prop.id,
+                      "libelle": f"Dû à {prop.nom} — {c.numero}"}],
+                    "sous_traitance", "facture", fa.id, numero, request.user.id,
+                    statut="valide")
+                fa.ecriture_id = ecr.id
+                fa.save(update_fields=["ecriture_id"])
+                c.st_facture_id = fa.id
+            c.save()
+            cam.save(update_fields=["statut"])
+            services.enregistrer_audit(request.user.id, "RETOUR", "course", c.id, None,
+                                       {"numero": c.numero,
+                                        "tonnage": payload["tonnage_livre"]})
+        return Response(_course_dict(c))
 
 
-@api_view(["POST"])
-def facturer_courses(request):
-    """Facture une ou plusieurs courses livrées d'un même client (PROC-KL-04)."""
-    sid = _societe_param(request)
-    roles = assert_acces_societe(request.user, sid)
-    assert_role(roles, ROLES)
-    payload = request.data or {}
-    if not payload.get("course_ids"):
-        return refus({"detail": "Sélectionnez au moins une course."}, status=400)
-    courses_l = [Course.objects.filter(id=cid).first()
-                 for cid in payload["course_ids"]]
-    for c in courses_l:
-        if not c or str(c.societe_id) != str(sid):
-            return refus({"detail": "Course invalide."}, status=400)
-        if c.statut != "livree":
-            return refus({"detail": f"{c.numero} : seule une course livrée se facture "
-                                    f"(statut {c.statut})."}, status=409)
-    clients = {c.client_tiers_id for c in courses_l}
-    if len(clients) > 1:
-        return refus({"detail": "Une facture regroupe des courses d'un même client."},
-                     status=400)
-    # Course issue d'un PO : facturation après réception acheteur confirmée
-    for c in courses_l:
-        if c.commande_origine_id:
-            cmd_po = Commande.objects.filter(id=c.commande_origine_id).first()
-            r = intersociete_lib.reception_po_resume(cmd_po) if cmd_po else None
-            if not r or r["totaux"]["bon"] + r["totaux"]["mauvais"] \
-                    + r["totaux"]["manquant"] <= 0:
-                return refus({"detail": f"{c.numero} : facturation bloquée — l'acheteur "
-                                        f"n'a pas encore réceptionné la marchandise "
-                                        f"(le transport se facture sur le reçu)."},
-                             status=409)
-            if not r["toutes_confirmees"]:
-                return refus({"detail": f"{c.numero} : facturation bloquée — confirmez "
-                                        f"d'abord la réception de l'acheteur (bouton "
-                                        f"« Confirmer la réception » sur la course)."},
-                             status=409)
-    societe = Societe.objects.filter(id=sid).first()
-    tiers = Tiers.objects.filter(id=courses_l[0].client_tiers_id).first()
-    jour = date.today()
-    tva_taux = float(services.get_parametre("tva.taux_defaut", sid, "16"))
-    statut_piece = intersociete_lib._statut_piece(sid, "vente")
-    with transaction.atomic():
-        numero = services.next_numero("facture_vente", jour.year, societe.code,
-                                      societe.id)
-        fac = Facture.objects.create(
-            societe_id=sid, type="vente", numero=numero, tiers_id=tiers.id,
-            date_facture=jour,
-            echeance=date.fromisoformat(payload["echeance"])
-            if payload.get("echeance") else None,
-            statut="validee" if statut_piece == "valide" else "en_attente",
-            created_by=request.user.id, created_at=services.maintenant())
-
-        total_ht = total_tva = cout_total = 0.0
-        for c in courses_l:
-            ht = _recette(c)
-            tva = round(ht * tva_taux / 100, 2)
-            cam = Camion.objects.filter(id=c.camion_id).first()
-            des = (f"Transport {c.marchandise} — {c.origine} → {c.destination} "
-                   f"({c.numero}, camion {cam.immatriculation}, "
-                   f"{float(c.tonnage_livre or 0):g} t)")
-            LigneFacture.objects.create(facture_id=fac.id, designation=des, qte=1,
-                                        prix_unitaire=ht, taux_tva=tva_taux,
-                                        montant_ht=ht, montant_tva=tva)
-            total_ht += ht
-            total_tva += tva
-            cout_total += float(c.st_cout or 0) + _frais_course(c)
-            c.statut = "facturee"
-            c.facture_id = fac.id
-            c.save(update_fields=["statut", "facture_id"])
-        fac.total_ht = round(total_ht, 2)
-        fac.total_tva = round(total_tva, 2)
-        fac.total_ttc = round(total_ht + total_tva, 2)
-        fac.cout_ventes = round(cout_total, 2)
-        fac.marge = round(fac.total_ht - cout_total, 2)
-
-        # Écriture : D 411 / C 706 (+ C 4431)
-        cpt_produit = comptabilite._compte("compte_vente_transport", sid)
-        lignes = [{"sens": "D", "compte": comptabilite._compte("compte_client", sid),
-                   "montant_usd": float(fac.total_ttc), "tiers_id": tiers.id,
-                   "libelle": f"Client {tiers.nom} — {numero}"},
-                  {"sens": "C", "compte": cpt_produit,
-                   "montant_usd": float(fac.total_ht),
-                   "libelle": f"Produits de transport {numero}"}]
-        if float(fac.total_tva):
-            lignes.append({"sens": "C",
-                           "compte": comptabilite._compte("tva_collectee", sid),
-                           "montant_usd": float(fac.total_tva),
-                           "libelle": f"TVA collectée {numero}"})
-        ecr = comptabilite.post_ecriture(sid, "VE", "Ventes", "vente", jour,
-                                         f"Facture transport {numero} — {tiers.nom}",
-                                         lignes, "facture_vente", "facture", fac.id,
-                                         numero, request.user.id, statut=statut_piece)
-        fac.ecriture_id = ecr.id
-        fac.save()
-        # Intersociété : client du groupe → miroir achat chez lui
-        intersociete_lib.creer_facture_miroir(fac, request.user.id)
-        services.enregistrer_audit(request.user.id, "INSERT", "facture", fac.id, None,
-                                   {"numero": numero,
-                                    "courses": [c.numero for c in courses_l]})
-    return Response({"facture": {"id": str(fac.id), "numero": numero,
-                                 "total_ttc": float(fac.total_ttc),
-                                 "intra_groupe": bool(fac.intra_groupe)},
-                     "courses": [_course_dict(c) for c in courses_l]}, status=201)
+    @action(detail=True, methods=['post'])
+    def annuler(self, request, course_id):
+        "Annulation d'une course. Avant le départ : simple. UNE COURSE PARTIE\n    (en cours / arrivée) peut aussi être interrompue — avec un MOTIF obligatoire,\n    tant qu'aucune réception n'a été constatée : le camion est libéré et, pour un\n    PO du groupe, une NOUVELLE demande de course est recréée automatiquement chez\n    le transporteur pour réorganiser le transport."
+        c, _ = _course_ou_404(request, course_id)
+        if not c:
+            return refus({"detail": "Course introuvable."}, status=404)
+        if c.statut in ("receptionnee", "livree", "facturee", "annulee"):
+            return refus({"detail": "Cette course ne s'annule plus : la marchandise a "
+                                    "été réceptionnée ou la course est clôturée."},
+                         status=409)
+        payload = request.data or {}
+        entamee = c.statut in ("en_cours", "arrivee")
+        motif = (payload.get("motif") or "").strip()
+        if entamee:
+            if not motif:
+                return refus({"detail": "Course déjà partie : un motif d'annulation est "
+                                        "obligatoire (panne, incident, retour à vide…)."},
+                             status=400)
+            if c.commande_origine_id:
+                cmd_po = Commande.objects.filter(id=c.commande_origine_id).first()
+                if cmd_po:
+                    r = intersociete_lib.reception_po_resume(cmd_po)
+                    t = r["totaux"]
+                    if t["bon"] + t["mauvais"] + t["manquant"] > 0:
+                        return refus({"detail": "Annulation impossible : l'acheteur a "
+                                                "déjà constaté une réception sur cette "
+                                                "course."}, status=409)
+        with transaction.atomic():
+            c.statut = "annulee"
+            if motif:
+                c.incidents = (f"{c.incidents} · " if c.incidents else "") \
+                    + f"ANNULÉE : {motif}"
+            c.save(update_fields=["statut", "incidents"])
+            # libère le camion s'il était en route
+            if entamee and c.camion_id:
+                cam = Camion.objects.filter(id=c.camion_id).first()
+                if cam and cam.statut == "en_course":
+                    cam.statut = "disponible"
+                    cam.save(update_fields=["statut"])
+            # PO du groupe encore actif → nouvelle demande de course automatique
+            nouvelle = None
+            if c.commande_origine_id:
+                cmd_po = Commande.objects.filter(id=c.commande_origine_id).first()
+                if cmd_po and cmd_po.statut not in ("soldee", "annulee"):
+                    societe = Societe.objects.filter(id=c.societe_id).first()
+                    nouvelle = Course.objects.create(
+                        societe_id=c.societe_id,
+                        numero=services.next_numero("course", date.today().year,
+                                                    societe.code, societe.id),
+                        date_course=date.today(), client_tiers_id=c.client_tiers_id,
+                        camion_id=None, origine=c.origine, destination=c.destination,
+                        marchandise=c.marchandise, tonnage_prevu=c.tonnage_prevu,
+                        unite=c.unite, tarif_mode=c.tarif_mode,
+                        prix_unitaire=c.prix_unitaire, statut="demande",
+                        commande_origine_id=c.commande_origine_id,
+                        created_by=request.user.id, created_at=services.maintenant())
+            services.enregistrer_audit(request.user.id, "ANNULATION", "course", c.id, None,
+                                       {"numero": c.numero, "motif": motif or None,
+                                        "nouvelle_demande": nouvelle.numero
+                                        if nouvelle else None})
+        out = _course_dict(c)
+        if nouvelle:
+            out["nouvelle_demande"] = nouvelle.numero
+        return Response(out)
 
 
 # ═══ Maintenance mutualisée camions + engins (PROC-KL-05/06) ═════════
@@ -858,237 +779,420 @@ def _intervention_dict(i: InterventionCamion) -> dict:
             "requisition": req.numero if req else None}
 
 
-@api_view(["GET", "POST"])
-def interventions(request):
-    sid = _societe_param(request)
-    roles = assert_acces_societe(request.user, sid)
-    assert_role(roles, ROLES_MAINT)
-    if request.method == "POST":
-        payload = request.data or {}
-        cam = eng = None
-        if payload.get("engin_id"):
-            eng = Engin.objects.filter(id=payload["engin_id"]).first()
-            if not eng or str(eng.societe_id) != str(sid):
-                return refus({"detail": "Engin invalide."}, status=400)
-        else:
-            cam = Camion.objects.filter(id=payload.get("camion_id")).first()
-            if not cam or str(cam.societe_id) != str(sid):
-                return refus({"detail": "Camion invalide."}, status=400)
-        cible, libelle = (cam, cam.immatriculation) if cam else (eng, eng.nom)
-        if len((payload.get("description") or "").strip()) < 3:
-            return refus({"detail": "description requise."}, status=422)
-        # Planification : une date prévue crée l'intervention en attente,
-        # sans immobiliser — l'immobilisation se fait au démarrage.
-        date_prevue = None
-        if payload.get("date_prevue"):
-            try:
-                date_prevue = date.fromisoformat(payload["date_prevue"])
-            except ValueError:
-                return refus({"detail": "date_prevue invalide."}, status=422)
-        planifiee = bool(date_prevue and date_prevue > date.today())
-        immobilise = payload.get("immobilise", True)
-        if immobilise and not planifiee and cam and cam.statut == "en_course":
-            return refus({"detail": f"{cam.immatriculation} est en course — clôturez "
-                                    f"la course avant d'immobiliser."}, status=409)
-        societe = Societe.objects.filter(id=sid).first()
+class InterventionViewSet(MetierModelViewSet):
+    """Ressource Intervention ; contrats HTTP et validations métier conservés."""
+    queryset = InterventionCamion.objects.none()
+    serializer_class = InterventionCamionSerializer
+    lookup_url_kwarg = 'intervention_id'
+
+    def list(self, request):
+        return self._traiter_interventions(request)
+
+
+    def create(self, request):
+        return self._traiter_interventions(request)
+
+
+    def _traiter_interventions(self, request):
+        sid = _societe_param(request)
+        roles = assert_acces_societe(request.user, sid)
+        assert_role(roles, ROLES_MAINT)
+        if request.method == "POST":
+            payload = request.data or {}
+            cam = eng = None
+            if payload.get("engin_id"):
+                eng = Engin.objects.filter(id=payload["engin_id"]).first()
+                if not eng or str(eng.societe_id) != str(sid):
+                    return refus({"detail": "Engin invalide."}, status=400)
+            else:
+                cam = Camion.objects.filter(id=payload.get("camion_id")).first()
+                if not cam or str(cam.societe_id) != str(sid):
+                    return refus({"detail": "Camion invalide."}, status=400)
+            cible, libelle = (cam, cam.immatriculation) if cam else (eng, eng.nom)
+            if len((payload.get("description") or "").strip()) < 3:
+                return refus({"detail": "description requise."}, status=422)
+            # Planification : une date prévue crée l'intervention en attente,
+            # sans immobiliser — l'immobilisation se fait au démarrage.
+            date_prevue = None
+            if payload.get("date_prevue"):
+                try:
+                    date_prevue = date.fromisoformat(payload["date_prevue"])
+                except ValueError:
+                    return refus({"detail": "date_prevue invalide."}, status=422)
+            planifiee = bool(date_prevue and date_prevue > date.today())
+            immobilise = payload.get("immobilise", True)
+            if immobilise and not planifiee and cam and cam.statut == "en_course":
+                return refus({"detail": f"{cam.immatriculation} est en course — clôturez "
+                                        f"la course avant d'immobiliser."}, status=409)
+            societe = Societe.objects.filter(id=sid).first()
+            with transaction.atomic():
+                i = InterventionCamion.objects.create(
+                    societe_id=sid,
+                    camion_id=cam.id if cam else None,
+                    engin_id=eng.id if eng else None,
+                    numero=services.next_numero("intervention", date.today().year,
+                                                societe.code, societe.id),
+                    type=payload.get("type", "reparation"),
+                    description=payload["description"].strip(),
+                    prestataire=(payload.get("prestataire") or "").strip() or None,
+                    cout_estime=payload.get("cout_estime"), immobilise=immobilise,
+                    date_signalement=date.today(), date_prevue=date_prevue,
+                    requisition_id=payload.get("requisition_id"),
+                    statut="planifiee" if planifiee else "en_cours",
+                    created_by=request.user.id,
+                    created_at=services.maintenant())
+                if immobilise and not planifiee:
+                    _immobiliser(cible, payload.get("type", "reparation"),
+                                 payload["description"].strip())
+                services.enregistrer_audit(request.user.id, "INSERT", "intervention", i.id,
+                                           None, {"vehicule": libelle,
+                                                  "type": payload.get("type", "reparation"),
+                                                  "statut": i.statut})
+            return Response(_intervention_dict(i), status=201)
+        q = InterventionCamion.objects.filter(societe_id=sid)
+        camion_id = request.query_params.get("camion_id")
+        if camion_id:
+            q = q.filter(camion_id=camion_id)
+        engin_id = request.query_params.get("engin_id")
+        if engin_id:
+            q = q.filter(engin_id=engin_id)
+        cible = request.query_params.get("cible")
+        if cible == "camion":
+            q = q.filter(camion_id__isnull=False)
+        elif cible == "engin":
+            q = q.filter(engin_id__isnull=False)
+        return Response([_intervention_dict(i) for i in q.order_by("-created_at")])
+
+
+    @action(detail=True, methods=['post'])
+    def demarrer(self, request, intervention_id):
+        """Démarre une intervention planifiée (immobilise le véhicule si demandé)."""
+        i = InterventionCamion.objects.filter(id=intervention_id).first()
+        if not i:
+            return refus({"detail": "Intervention introuvable."}, status=404)
+        roles = assert_acces_societe(request.user, i.societe_id)
+        assert_role(roles, ROLES_MAINT)
+        if i.statut != "planifiee":
+            return refus({"detail": "Seule une intervention planifiée peut être "
+                                    "démarrée."}, status=409)
+        cible, genre, libelle = _cible_intervention(i)
+        if not cible:
+            return refus({"detail": "Véhicule introuvable."}, status=404)
+        if i.immobilise and genre == "camion" and cible.statut == "en_course":
+            return refus({"detail": f"{libelle} est en course — clôturez la course "
+                                    f"avant d'immobiliser."}, status=409)
         with transaction.atomic():
-            i = InterventionCamion.objects.create(
-                societe_id=sid,
-                camion_id=cam.id if cam else None,
-                engin_id=eng.id if eng else None,
-                numero=services.next_numero("intervention", date.today().year,
-                                            societe.code, societe.id),
-                type=payload.get("type", "reparation"),
-                description=payload["description"].strip(),
-                prestataire=(payload.get("prestataire") or "").strip() or None,
-                cout_estime=payload.get("cout_estime"), immobilise=immobilise,
-                date_signalement=date.today(), date_prevue=date_prevue,
-                requisition_id=payload.get("requisition_id"),
-                statut="planifiee" if planifiee else "en_cours",
-                created_by=request.user.id,
-                created_at=services.maintenant())
-            if immobilise and not planifiee:
-                _immobiliser(cible, payload.get("type", "reparation"),
-                             payload["description"].strip())
-            services.enregistrer_audit(request.user.id, "INSERT", "intervention", i.id,
-                                       None, {"vehicule": libelle,
-                                              "type": payload.get("type", "reparation"),
-                                              "statut": i.statut})
-        return Response(_intervention_dict(i), status=201)
-    q = InterventionCamion.objects.filter(societe_id=sid)
-    camion_id = request.query_params.get("camion_id")
-    if camion_id:
-        q = q.filter(camion_id=camion_id)
-    engin_id = request.query_params.get("engin_id")
-    if engin_id:
-        q = q.filter(engin_id=engin_id)
-    cible = request.query_params.get("cible")
-    if cible == "camion":
-        q = q.filter(camion_id__isnull=False)
-    elif cible == "engin":
-        q = q.filter(engin_id__isnull=False)
-    return Response([_intervention_dict(i) for i in q.order_by("-created_at")])
+            i.statut = "en_cours"
+            i.save(update_fields=["statut"])
+            if i.immobilise:
+                _immobiliser(cible, i.type, i.description)
+            services.enregistrer_audit(request.user.id, "UPDATE", "intervention", i.id,
+                                       None, {"numero": i.numero, "statut": "en_cours"})
+        return Response(_intervention_dict(i))
 
 
-@api_view(["POST"])
-def demarrer_intervention(request, intervention_id):
-    """Démarre une intervention planifiée (immobilise le véhicule si demandé)."""
-    i = InterventionCamion.objects.filter(id=intervention_id).first()
-    if not i:
-        return refus({"detail": "Intervention introuvable."}, status=404)
-    roles = assert_acces_societe(request.user, i.societe_id)
-    assert_role(roles, ROLES_MAINT)
-    if i.statut != "planifiee":
-        return refus({"detail": "Seule une intervention planifiée peut être "
-                                "démarrée."}, status=409)
-    cible, genre, libelle = _cible_intervention(i)
-    if not cible:
-        return refus({"detail": "Véhicule introuvable."}, status=404)
-    if i.immobilise and genre == "camion" and cible.statut == "en_course":
-        return refus({"detail": f"{libelle} est en course — clôturez la course "
-                                f"avant d'immobiliser."}, status=409)
-    with transaction.atomic():
-        i.statut = "en_cours"
-        i.save(update_fields=["statut"])
-        if i.immobilise:
-            _immobiliser(cible, i.type, i.description)
-        services.enregistrer_audit(request.user.id, "UPDATE", "intervention", i.id,
-                                   None, {"numero": i.numero, "statut": "en_cours"})
-    return Response(_intervention_dict(i))
-
-
-@api_view(["POST"])
-def terminer_intervention(request, intervention_id):
-    """Remise en service (PROC-KL-06)."""
-    i = InterventionCamion.objects.filter(id=intervention_id).first()
-    if not i:
-        return refus({"detail": "Intervention introuvable."}, status=404)
-    roles = assert_acces_societe(request.user, i.societe_id)
-    assert_role(roles, ROLES_MAINT)
-    if i.statut == "terminee":
-        return refus({"detail": "Déjà terminée."}, status=409)
-    payload = request.data or {}
-    i.statut = "terminee"
-    i.date_fin = date.today()
-    if payload.get("cout_reel") is not None:
-        i.cout_reel = payload["cout_reel"]
-    elif i.requisition_id:
-        total = Justification.objects.filter(
-            avance_id__in=Avance.objects.filter(
-                ordre_depense_id__in=OrdreDepense.objects.filter(
-                    requisition_id=i.requisition_id).values("id")).values("id")
-        ).aggregate(t=Sum("montant_justifie_usd"))["t"]
-        i.cout_reel = round(float(total or 0), 2) or None
-    i.save()
-    cible, genre, _libelle = _cible_intervention(i)
-    # Entretien issu d'un plan : la clôture fige la « dernière exécution »
-    # du plan à l'usage actuel (le compteur repart de là).
-    if i.plan_id:
-        from apps.engins import services as engins_lib
-        from apps.maintenance import services as maintenance_lib
-        from apps.maintenance.models import PlanEntretien
-        plan = PlanEntretien.objects.filter(id=i.plan_id).first()
-        if plan and cible:
-            mode = engins_lib.reglages(i.societe_id)["arrondi"]
-            usage = maintenance_lib.usage_camion(cible) if genre == "camion" \
-                else maintenance_lib.usage_engin(cible, mode)
-            plan.derniere_date = date.today()
-            plan.derniere_valeur = maintenance_lib.valeur_compteur(plan, usage)
-            plan.save(update_fields=["derniere_date", "derniere_valeur"])
-    if i.immobilise and cible:
-        filtre = {"camion_id": i.camion_id} if genre == "camion" \
-            else {"engin_id": i.engin_id}
-        autres = InterventionCamion.objects.filter(
-            immobilise=True, **filtre).exclude(
-            statut__in=["terminee", "planifiee"]).exclude(id=i.id).exists()
-        if not autres:
-            cible.statut = "disponible"
-            cible.motif_immobilisation = None
-            cible.immobilise_depuis = None
-            cible.save(update_fields=["statut", "motif_immobilisation",
-                                      "immobilise_depuis"])
-    services.enregistrer_audit(request.user.id, "FIN", "intervention", i.id, None,
-                               {"numero": i.numero,
-                                "cout_reel": float(i.cout_reel or 0)})
-    return Response(_intervention_dict(i))
+    @action(detail=True, methods=['post'])
+    def terminer(self, request, intervention_id):
+        """Remise en service (PROC-KL-06)."""
+        i = InterventionCamion.objects.filter(id=intervention_id).first()
+        if not i:
+            return refus({"detail": "Intervention introuvable."}, status=404)
+        roles = assert_acces_societe(request.user, i.societe_id)
+        assert_role(roles, ROLES_MAINT)
+        if i.statut == "terminee":
+            return refus({"detail": "Déjà terminée."}, status=409)
+        payload = request.data or {}
+        i.statut = "terminee"
+        i.date_fin = date.today()
+        if payload.get("cout_reel") is not None:
+            i.cout_reel = payload["cout_reel"]
+        elif i.requisition_id:
+            total = Justification.objects.filter(
+                avance_id__in=Avance.objects.filter(
+                    ordre_depense_id__in=OrdreDepense.objects.filter(
+                        requisition_id=i.requisition_id).values("id")).values("id")
+            ).aggregate(t=Sum("montant_justifie_usd"))["t"]
+            i.cout_reel = round(float(total or 0), 2) or None
+        i.save()
+        cible, genre, _libelle = _cible_intervention(i)
+        # Entretien issu d'un plan : la clôture fige la « dernière exécution »
+        # du plan à l'usage actuel (le compteur repart de là).
+        if i.plan_id:
+            from apps.engins import services as engins_lib
+            from apps.maintenance import services as maintenance_lib
+            from apps.maintenance.models import PlanEntretien
+            plan = PlanEntretien.objects.filter(id=i.plan_id).first()
+            if plan and cible:
+                mode = engins_lib.reglages(i.societe_id)["arrondi"]
+                usage = maintenance_lib.usage_camion(cible) if genre == "camion" \
+                    else maintenance_lib.usage_engin(cible, mode)
+                plan.derniere_date = date.today()
+                plan.derniere_valeur = maintenance_lib.valeur_compteur(plan, usage)
+                plan.save(update_fields=["derniere_date", "derniere_valeur"])
+        if i.immobilise and cible:
+            filtre = {"camion_id": i.camion_id} if genre == "camion" \
+                else {"engin_id": i.engin_id}
+            autres = InterventionCamion.objects.filter(
+                immobilise=True, **filtre).exclude(
+                statut__in=["terminee", "planifiee"]).exclude(id=i.id).exists()
+            if not autres:
+                cible.statut = "disponible"
+                cible.motif_immobilisation = None
+                cible.immobilise_depuis = None
+                cible.save(update_fields=["statut", "motif_immobilisation",
+                                          "immobilise_depuis"])
+        services.enregistrer_audit(request.user.id, "FIN", "intervention", i.id, None,
+                                   {"numero": i.numero,
+                                    "cout_reel": float(i.cout_reel or 0)})
+        return Response(_intervention_dict(i))
 
 
 # ═══ Rentabilité ═════════════════════════════════════════════════════
-@api_view(["GET"])
-def rapport_transport(request):
-    """Rentabilité par camion et par contrat."""
-    sid = _societe_param(request)
-    roles = assert_acces_societe(request.user, sid)
-    assert_role(roles, ROLES)
-    debut = date.fromisoformat(request.query_params["debut"]) \
-        if request.query_params.get("debut") else None
-    fin = date.fromisoformat(request.query_params["fin"]) \
-        if request.query_params.get("fin") else None
-    q = Course.objects.filter(societe_id=sid, statut__in=["livree", "facturee"])
-    if debut:
-        q = q.filter(date_course__gte=debut)
-    if fin:
-        q = q.filter(date_course__lte=fin)
-    courses_l = list(q)
+class TransportViewSet(MetierViewSet):
+    """Ressource Transport ; contrats HTTP et validations métier conservés."""
 
-    par_camion: dict = {}
-    par_contrat: dict = {}
-    tot = {"courses": 0, "recettes": 0.0, "frais": 0.0, "sous_traitance": 0.0,
-           "tonnage": 0.0}
-    for c in courses_l:
-        cam = Camion.objects.filter(id=c.camion_id).first()
-        rec, fr, st = _recette(c), _frais_course(c), float(c.st_cout or 0)
-        k = cam.immatriculation if cam else "?"
-        e = par_camion.setdefault(k, {"camion": k, "type": cam.type if cam else "?",
-                                      "courses": 0, "tonnage": 0.0, "recettes": 0.0,
-                                      "frais": 0.0, "sous_traitance": 0.0,
-                                      "maintenance": 0.0})
-        e["courses"] += 1
-        e["tonnage"] = round(e["tonnage"] + float(c.tonnage_livre or 0), 2)
-        e["recettes"] = round(e["recettes"] + rec, 2)
-        e["frais"] = round(e["frais"] + fr, 2)
-        e["sous_traitance"] = round(e["sous_traitance"] + st, 2)
-        if c.contrat_id:
-            ctr = ContratTransport.objects.filter(id=c.contrat_id).first()
-            k2 = ctr.libelle if ctr else "?"
-            e2 = par_contrat.setdefault(k2, {"contrat": k2, "courses": 0,
-                                             "recettes": 0.0, "frais": 0.0,
-                                             "sous_traitance": 0.0})
-            e2["courses"] += 1
-            e2["recettes"] = round(e2["recettes"] + rec, 2)
-            e2["frais"] = round(e2["frais"] + fr, 2)
-            e2["sous_traitance"] = round(e2["sous_traitance"] + st, 2)
-        tot["courses"] += 1
-        tot["recettes"] = round(tot["recettes"] + rec, 2)
-        tot["frais"] = round(tot["frais"] + fr, 2)
-        tot["sous_traitance"] = round(tot["sous_traitance"] + st, 2)
-        tot["tonnage"] = round(tot["tonnage"] + float(c.tonnage_livre or 0), 2)
+    @action(detail=False, methods=['get'])
+    def get_config(self, request):
+        return self._traiter_config_transport(request)
 
-    qi = InterventionCamion.objects.filter(societe_id=sid, cout_reel__isnull=False,
-                                           camion_id__isnull=False)
-    if debut:
-        qi = qi.filter(date_signalement__gte=debut)
-    if fin:
-        qi = qi.filter(date_signalement__lte=fin)
-    maintenance_tot = 0.0
-    for i in qi:
-        cam = Camion.objects.filter(id=i.camion_id).first()
-        k = cam.immatriculation if cam else "?"
-        if k in par_camion:
-            par_camion[k]["maintenance"] = round(
-                par_camion[k]["maintenance"] + float(i.cout_reel), 2)
-        maintenance_tot = round(maintenance_tot + float(i.cout_reel), 2)
 
-    for e in par_camion.values():
-        e["marge"] = round(e["recettes"] - e["frais"] - e["sous_traitance"]
-                           - e["maintenance"], 2)
-    for e in par_contrat.values():
-        e["marge"] = round(e["recettes"] - e["frais"] - e["sous_traitance"], 2)
-    tot["maintenance"] = maintenance_tot
-    tot["marge"] = round(tot["recettes"] - tot["frais"] - tot["sous_traitance"]
-                         - maintenance_tot, 2)
-    return Response({"total": tot,
-                     "par_camion": sorted(par_camion.values(),
-                                          key=lambda x: -x["recettes"]),
-                     "par_contrat": sorted(par_contrat.values(),
-                                           key=lambda x: -x["recettes"])})
+    @action(detail=False, methods=['post'])
+    def post_config(self, request):
+        return self._traiter_config_transport(request)
+
+
+    def _traiter_config_transport(self, request):
+        sid = _societe_param(request)
+        roles = assert_acces_societe(request.user, sid)
+        if request.method == "POST":
+            assert_role(roles, {"DFI", "PRESIDENT", "ADMIN_SYS"})
+            payload = request.data or {}
+            code = (payload.get("role_validation") or "").strip().upper()
+            if len(code) < 2:
+                return refus({"detail": "role_validation requis."}, status=422)
+            if not Role.objects.filter(code=code).exists():
+                return refus({"detail": f"Rôle {code} inconnu."}, status=400)
+            p = Parametre.objects.filter(cle="transport.role_validation",
+                                         societe_id=sid).first()
+            if p:
+                p.valeur = code
+                p.save(update_fields=["valeur"])
+            else:
+                Parametre.objects.create(societe_id=sid, cle="transport.role_validation",
+                                         valeur=code, type_valeur="string",
+                                         description="Rôle validateur des fiches de course")
+            services.enregistrer_audit(request.user.id, "CONFIG", "transport", None, None,
+                                       {"role_validation": code})
+            return Response({"role_validation": code})
+        assert_role(roles, ROLES)
+        tous = [{"code": r.code, "libelle": r.libelle}
+                for r in Role.objects.all().order_by("code")]
+        return Response({"role_validation": _role_validation(sid), "roles": tous})
+
+
+    @action(detail=False, methods=['post'])
+    def facturer(self, request):
+        """Facture une ou plusieurs courses livrées d'un même client (PROC-KL-04)."""
+        sid = _societe_param(request)
+        roles = assert_acces_societe(request.user, sid)
+        assert_role(roles, ROLES)
+        payload = request.data or {}
+        if not payload.get("course_ids"):
+            return refus({"detail": "Sélectionnez au moins une course."}, status=400)
+        courses_l = [Course.objects.filter(id=cid).first()
+                     for cid in payload["course_ids"]]
+        for c in courses_l:
+            if not c or str(c.societe_id) != str(sid):
+                return refus({"detail": "Course invalide."}, status=400)
+            if c.statut != "livree":
+                return refus({"detail": f"{c.numero} : seule une course livrée se facture "
+                                        f"(statut {c.statut})."}, status=409)
+        clients = {c.client_tiers_id for c in courses_l}
+        if len(clients) > 1:
+            return refus({"detail": "Une facture regroupe des courses d'un même client."},
+                         status=400)
+        # Course issue d'un PO : facturation après réception acheteur confirmée
+        for c in courses_l:
+            if c.commande_origine_id:
+                cmd_po = Commande.objects.filter(id=c.commande_origine_id).first()
+                r = intersociete_lib.reception_po_resume(cmd_po) if cmd_po else None
+                if not r or r["totaux"]["bon"] + r["totaux"]["mauvais"] \
+                        + r["totaux"]["manquant"] <= 0:
+                    return refus({"detail": f"{c.numero} : facturation bloquée — l'acheteur "
+                                            f"n'a pas encore réceptionné la marchandise "
+                                            f"(le transport se facture sur le reçu)."},
+                                 status=409)
+                if not r["toutes_confirmees"]:
+                    return refus({"detail": f"{c.numero} : facturation bloquée — confirmez "
+                                            f"d'abord la réception de l'acheteur (bouton "
+                                            f"« Confirmer la réception » sur la course)."},
+                                 status=409)
+        societe = Societe.objects.filter(id=sid).first()
+        tiers = Tiers.objects.filter(id=courses_l[0].client_tiers_id).first()
+        jour = date.today()
+        tva_taux = float(services.get_parametre("tva.taux_defaut", sid, "16"))
+        statut_piece = intersociete_lib._statut_piece(sid, "vente")
+        with transaction.atomic():
+            numero = services.next_numero("facture_vente", jour.year, societe.code,
+                                          societe.id)
+            fac = Facture.objects.create(
+                societe_id=sid, type="vente", numero=numero, tiers_id=tiers.id,
+                date_facture=jour,
+                echeance=date.fromisoformat(payload["echeance"])
+                if payload.get("echeance") else None,
+                statut="validee" if statut_piece == "valide" else "en_attente",
+                created_by=request.user.id, created_at=services.maintenant())
+
+            total_ht = total_tva = cout_total = 0.0
+            for c in courses_l:
+                ht = _recette(c)
+                tva = round(ht * tva_taux / 100, 2)
+                cam = Camion.objects.filter(id=c.camion_id).first()
+                des = (f"Transport {c.marchandise} — {c.origine} → {c.destination} "
+                       f"({c.numero}, camion {cam.immatriculation}, "
+                       f"{float(c.tonnage_livre or 0):g} t)")
+                LigneFacture.objects.create(facture_id=fac.id, designation=des, qte=1,
+                                            prix_unitaire=ht, taux_tva=tva_taux,
+                                            montant_ht=ht, montant_tva=tva)
+                total_ht += ht
+                total_tva += tva
+                cout_total += float(c.st_cout or 0) + _frais_course(c)
+                c.statut = "facturee"
+                c.facture_id = fac.id
+                c.save(update_fields=["statut", "facture_id"])
+            fac.total_ht = round(total_ht, 2)
+            fac.total_tva = round(total_tva, 2)
+            fac.total_ttc = round(total_ht + total_tva, 2)
+            fac.cout_ventes = round(cout_total, 2)
+            fac.marge = round(fac.total_ht - cout_total, 2)
+
+            # Écriture : D 411 / C 706 (+ C 4431)
+            cpt_produit = comptabilite._compte("compte_vente_transport", sid)
+            lignes = [{"sens": "D", "compte": comptabilite._compte("compte_client", sid),
+                       "montant_usd": float(fac.total_ttc), "tiers_id": tiers.id,
+                       "libelle": f"Client {tiers.nom} — {numero}"},
+                      {"sens": "C", "compte": cpt_produit,
+                       "montant_usd": float(fac.total_ht),
+                       "libelle": f"Produits de transport {numero}"}]
+            if float(fac.total_tva):
+                lignes.append({"sens": "C",
+                               "compte": comptabilite._compte("tva_collectee", sid),
+                               "montant_usd": float(fac.total_tva),
+                               "libelle": f"TVA collectée {numero}"})
+            ecr = comptabilite.post_ecriture(sid, "VE", "Ventes", "vente", jour,
+                                             f"Facture transport {numero} — {tiers.nom}",
+                                             lignes, "facture_vente", "facture", fac.id,
+                                             numero, request.user.id, statut=statut_piece)
+            fac.ecriture_id = ecr.id
+            fac.save()
+            # Intersociété : client du groupe → miroir achat chez lui
+            intersociete_lib.creer_facture_miroir(fac, request.user.id)
+            services.enregistrer_audit(request.user.id, "INSERT", "facture", fac.id, None,
+                                       {"numero": numero,
+                                        "courses": [c.numero for c in courses_l]})
+        return Response({"facture": {"id": str(fac.id), "numero": numero,
+                                     "total_ttc": float(fac.total_ttc),
+                                     "intra_groupe": bool(fac.intra_groupe)},
+                         "courses": [_course_dict(c) for c in courses_l]}, status=201)
+
+
+    @action(detail=False, methods=['get'])
+    def rapport(self, request):
+        """Rentabilité par camion et par contrat."""
+        sid = _societe_param(request)
+        roles = assert_acces_societe(request.user, sid)
+        assert_role(roles, ROLES)
+        debut = date.fromisoformat(request.query_params["debut"]) \
+            if request.query_params.get("debut") else None
+        fin = date.fromisoformat(request.query_params["fin"]) \
+            if request.query_params.get("fin") else None
+        q = Course.objects.filter(societe_id=sid, statut__in=["livree", "facturee"])
+        if debut:
+            q = q.filter(date_course__gte=debut)
+        if fin:
+            q = q.filter(date_course__lte=fin)
+        courses_l = list(q)
+
+        par_camion: dict = {}
+        par_contrat: dict = {}
+        tot = {"courses": 0, "recettes": 0.0, "frais": 0.0, "sous_traitance": 0.0,
+               "tonnage": 0.0}
+        for c in courses_l:
+            cam = Camion.objects.filter(id=c.camion_id).first()
+            rec, fr, st = _recette(c), _frais_course(c), float(c.st_cout or 0)
+            k = cam.immatriculation if cam else "?"
+            e = par_camion.setdefault(k, {"camion": k, "type": cam.type if cam else "?",
+                                          "courses": 0, "tonnage": 0.0, "recettes": 0.0,
+                                          "frais": 0.0, "sous_traitance": 0.0,
+                                          "maintenance": 0.0})
+            e["courses"] += 1
+            e["tonnage"] = round(e["tonnage"] + float(c.tonnage_livre or 0), 2)
+            e["recettes"] = round(e["recettes"] + rec, 2)
+            e["frais"] = round(e["frais"] + fr, 2)
+            e["sous_traitance"] = round(e["sous_traitance"] + st, 2)
+            if c.contrat_id:
+                ctr = ContratTransport.objects.filter(id=c.contrat_id).first()
+                k2 = ctr.libelle if ctr else "?"
+                e2 = par_contrat.setdefault(k2, {"contrat": k2, "courses": 0,
+                                                 "recettes": 0.0, "frais": 0.0,
+                                                 "sous_traitance": 0.0})
+                e2["courses"] += 1
+                e2["recettes"] = round(e2["recettes"] + rec, 2)
+                e2["frais"] = round(e2["frais"] + fr, 2)
+                e2["sous_traitance"] = round(e2["sous_traitance"] + st, 2)
+            tot["courses"] += 1
+            tot["recettes"] = round(tot["recettes"] + rec, 2)
+            tot["frais"] = round(tot["frais"] + fr, 2)
+            tot["sous_traitance"] = round(tot["sous_traitance"] + st, 2)
+            tot["tonnage"] = round(tot["tonnage"] + float(c.tonnage_livre or 0), 2)
+
+        qi = InterventionCamion.objects.filter(societe_id=sid, cout_reel__isnull=False,
+                                               camion_id__isnull=False)
+        if debut:
+            qi = qi.filter(date_signalement__gte=debut)
+        if fin:
+            qi = qi.filter(date_signalement__lte=fin)
+        maintenance_tot = 0.0
+        for i in qi:
+            cam = Camion.objects.filter(id=i.camion_id).first()
+            k = cam.immatriculation if cam else "?"
+            if k in par_camion:
+                par_camion[k]["maintenance"] = round(
+                    par_camion[k]["maintenance"] + float(i.cout_reel), 2)
+            maintenance_tot = round(maintenance_tot + float(i.cout_reel), 2)
+
+        for e in par_camion.values():
+            e["marge"] = round(e["recettes"] - e["frais"] - e["sous_traitance"]
+                               - e["maintenance"], 2)
+        for e in par_contrat.values():
+            e["marge"] = round(e["recettes"] - e["frais"] - e["sous_traitance"], 2)
+        tot["maintenance"] = maintenance_tot
+        tot["marge"] = round(tot["recettes"] - tot["frais"] - tot["sous_traitance"]
+                             - maintenance_tot, 2)
+        return Response({"total": tot,
+                         "par_camion": sorted(par_camion.values(),
+                                              key=lambda x: -x["recettes"]),
+                         "par_contrat": sorted(par_contrat.values(),
+                                               key=lambda x: -x["recettes"])})
+
+
+# Anciens points d’entrée conservés pour les intégrations existantes.
+config_transport = TransportViewSet.as_view({'get': 'get_config', 'post': 'post_config'}, http_method_names=['get', 'post', 'options'], detail=False, basename='transport')
+camions = CamionViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='camion')
+maj_camion = CamionViewSet.as_view({'patch': 'partial_update'}, http_method_names=['patch', 'options'], detail=True, basename='camion')
+chauffeurs = ChauffeurViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='chauffeur')
+contrats = ContratViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='contrat')
+modifier_contrat = ContratViewSet.as_view({'put': 'update'}, http_method_names=['put', 'options'], detail=True, basename='contrat')
+courses = CourseViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='course')
+prendre_en_charge = CourseViewSet.as_view({'post': 'prendre_en_charge'}, http_method_names=['post', 'options'], detail=True, basename='course')
+lier_requisition = CourseViewSet.as_view({'post': 'lier_requisition'}, http_method_names=['post', 'options'], detail=True, basename='course')
+valider_course = CourseViewSet.as_view({'post': 'valider'}, http_method_names=['post', 'options'], detail=True, basename='course')
+depart_course = CourseViewSet.as_view({'post': 'depart'}, http_method_names=['post', 'options'], detail=True, basename='course')
+arrivee_course = CourseViewSet.as_view({'post': 'arrivee'}, http_method_names=['post', 'options'], detail=True, basename='course')
+retour_course = CourseViewSet.as_view({'post': 'retour'}, http_method_names=['post', 'options'], detail=True, basename='course')
+annuler_course = CourseViewSet.as_view({'post': 'annuler'}, http_method_names=['post', 'options'], detail=True, basename='course')
+facturer_courses = TransportViewSet.as_view({'post': 'facturer'}, http_method_names=['post', 'options'], detail=False, basename='transport')
+interventions = InterventionViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='intervention')
+demarrer_intervention = InterventionViewSet.as_view({'post': 'demarrer'}, http_method_names=['post', 'options'], detail=True, basename='intervention')
+terminer_intervention = InterventionViewSet.as_view({'post': 'terminer'}, http_method_names=['post', 'options'], detail=True, basename='intervention')
+rapport_transport = TransportViewSet.as_view({'get': 'rapport'}, http_method_names=['get', 'options'], detail=False, basename='transport')

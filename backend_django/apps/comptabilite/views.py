@@ -6,10 +6,20 @@ financiers OHADA, comptes de configuration. Mêmes chemins, mêmes JSON.
 """
 from __future__ import annotations
 
+from rest_framework.decorators import action
+from core.viewsets import MetierModelViewSet, MetierViewSet
+from apps.comptabilite.models import Ecriture
+from apps.comptabilite.serializers import EcritureSerializer
+from apps.comptabilite.models import Compte
+from apps.comptabilite.serializers import CompteSerializer
+from apps.comptabilite.models import Journal
+from apps.comptabilite.serializers import JournalSerializer
+from apps.comptabilite.models import RapprochementBancaire
+from apps.comptabilite.serializers import RapprochementBancaireSerializer
+
 from datetime import date
 
 from django.db import transaction
-from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from apps.comptabilite import services as comptabilite
@@ -93,138 +103,147 @@ def _ecriture_dict(e: Ecriture, intitules: dict | None = None) -> dict:
     }
 
 
-@api_view(["GET"])
-def lister_ecritures(request):
-    sid = _societe_param(request)
-    _acces_compta(request, sid)
-    statut = request.query_params.get("statut", "en_attente")
-    q = Ecriture.objects.filter(societe_id=sid)
-    if statut:
-        q = q.filter(statut=statut)
-    return Response([_ecriture_dict(e) for e in q.order_by("-created_at")])
+class EcritureViewSet(MetierModelViewSet):
+    """Ressource Ecriture ; contrats HTTP et validations métier conservés."""
+    queryset = Ecriture.objects.none()
+    serializer_class = EcritureSerializer
+    lookup_url_kwarg = 'ecriture_id'
+
+    def list(self, request):
+        sid = _societe_param(request)
+        _acces_compta(request, sid)
+        statut = request.query_params.get("statut", "en_attente")
+        q = Ecriture.objects.filter(societe_id=sid)
+        if statut:
+            q = q.filter(statut=statut)
+        return Response([_ecriture_dict(e) for e in q.order_by("-created_at")])
 
 
-@api_view(["POST"])
-def valider_ecriture(request, ecriture_id):
-    """Le comptable valide la pièce, après reclassement et/ou éclatement des lignes."""
-    e = Ecriture.objects.filter(id=ecriture_id).first()
-    if not e:
-        return refus({"detail": "Écriture introuvable."}, status=404)
-    _acces_compta(request, e.societe_id)
-    if e.statut != "en_attente":
-        return refus({"detail": "Pièce déjà validée."}, status=409)
+    @action(detail=False, methods=['post'])
+    def saisie(self, request):
+        """Saisie manuelle d'une écriture équilibrée (OD), en USD — comptable/DFI."""
+        sid = _societe_param(request)
+        _acces_compta(request, sid)
+        payload = request.data or {}
+        lignes_in = payload.get("lignes") or []
+        if len(lignes_in) < 2:
+            return refus({"detail": "Au moins deux lignes (un débit et un crédit)."},
+                            status=400)
+        for l in lignes_in:
+            if l.get("sens") not in ("D", "C") or not l.get("compte") \
+                    or float(l.get("montant") or 0) <= 0:
+                return refus({"detail": "Ligne invalide (sens D/C, compte et montant > 0)."},
+                                status=422)
 
-    payload = request.data or {}
-    comptes_valides = set(Compte.objects.filter(societe_id=e.societe_id)
-                          .values_list("numero", flat=True))
-    lignes_ecr = list(LigneEcriture.objects.filter(ecriture_id=e.id))
-    ordre_max = max((l.ordre for l in lignes_ecr), default=0)
-    splits_faits, split_ids = 0, set()
+        total_d = round(sum(float(l["montant"]) for l in lignes_in if l["sens"] == "D"), 2)
+        total_c = round(sum(float(l["montant"]) for l in lignes_in if l["sens"] == "C"), 2)
+        if total_d != total_c:
+            return refus({"detail": f"Écriture déséquilibrée : débit {total_d} ≠ "
+                                       f"crédit {total_c}."}, status=400)
 
-    with transaction.atomic():
-        for sp in payload.get("splits", []):
-            ligne = LigneEcriture.objects.filter(id=sp.get("ligne_id")).first()
-            if not ligne or ligne.ecriture_id != e.id:
-                return refus({"detail": "Ligne à éclater invalide."}, status=400)
-            repartition = sp.get("repartition") or []
-            if not repartition:
-                continue
-            total = round(sum(float(r["montant"]) for r in repartition), 2)
-            if abs(total - float(ligne.montant_usd)) > 0.01:
-                return refus({"detail": f"L'éclatement ({total}) doit égaler le montant "
-                                           f"de la ligne ({float(ligne.montant_usd)})."},
+        comptes_valides = set(Compte.objects.filter(societe_id=sid)
+                              .values_list("numero", flat=True))
+        lignes = []
+        for l in lignes_in:
+            if l["compte"] not in comptes_valides:
+                return refus({"detail": f"Compte {l['compte']} absent du plan comptable."},
                                 status=400)
-            for r in repartition:
+            lignes.append({"sens": l["sens"], "compte": l["compte"],
+                           "montant_usd": round(float(l["montant"]), 2),
+                           "tiers_id": l.get("tiers_id"), "libelle": l.get("libelle")})
+
+        jcode_in = (payload.get("journal_code") or "OD").upper()
+        j = Journal.objects.filter(societe_id=sid, code=jcode_in).first()
+        jcode = j.code if j else jcode_in
+        jour = (date.fromisoformat(payload["date_ecriture"])
+                if payload.get("date_ecriture") else date.today())
+        with transaction.atomic():
+            ecr = comptabilite.post_ecriture(
+                sid, jcode, j.libelle if j else "Opérations diverses", j.type if j else "od",
+                jour, payload.get("libelle") or "", lignes,
+                "od_manuelle", "saisie_manuelle", None, payload.get("numero_piece"),
+                request.user.id, statut="valide")
+        return Response(_ecriture_dict(ecr), status=201)
+
+
+    @action(detail=True, methods=['post'])
+    def valider(self, request, ecriture_id):
+        """Le comptable valide la pièce, après reclassement et/ou éclatement des lignes."""
+        e = Ecriture.objects.filter(id=ecriture_id).first()
+        if not e:
+            return refus({"detail": "Écriture introuvable."}, status=404)
+        _acces_compta(request, e.societe_id)
+        if e.statut != "en_attente":
+            return refus({"detail": "Pièce déjà validée."}, status=409)
+
+        payload = request.data or {}
+        comptes_valides = set(Compte.objects.filter(societe_id=e.societe_id)
+                              .values_list("numero", flat=True))
+        lignes_ecr = list(LigneEcriture.objects.filter(ecriture_id=e.id))
+        ordre_max = max((l.ordre for l in lignes_ecr), default=0)
+        splits_faits, split_ids = 0, set()
+
+        with transaction.atomic():
+            for sp in payload.get("splits", []):
+                ligne = LigneEcriture.objects.filter(id=sp.get("ligne_id")).first()
+                if not ligne or ligne.ecriture_id != e.id:
+                    return refus({"detail": "Ligne à éclater invalide."}, status=400)
+                repartition = sp.get("repartition") or []
+                if not repartition:
+                    continue
+                total = round(sum(float(r["montant"]) for r in repartition), 2)
+                if abs(total - float(ligne.montant_usd)) > 0.01:
+                    return refus({"detail": f"L'éclatement ({total}) doit égaler le montant "
+                                               f"de la ligne ({float(ligne.montant_usd)})."},
+                                    status=400)
+                for r in repartition:
+                    if r["compte_numero"] not in comptes_valides:
+                        return refus({"detail": f"Compte {r['compte_numero']} absent du plan "
+                                                   f"comptable."}, status=400)
+                # 1ère répartition réutilise la ligne existante
+                first = repartition[0]
+                ligne.compte_numero = first["compte_numero"]
+                ligne.montant_usd = round(float(first["montant"]), 2)
+                ligne.tiers_id = first.get("tiers_id")
+                if first.get("libelle"):
+                    ligne.libelle_ligne = first["libelle"]
+                ligne.save()
+                # les suivantes = nouvelles lignes, même sens
+                for r in repartition[1:]:
+                    ordre_max += 1
+                    LigneEcriture.objects.create(
+                        ecriture_id=e.id, societe_id=e.societe_id, ordre=ordre_max,
+                        sens=ligne.sens, compte_numero=r["compte_numero"],
+                        tiers_id=r.get("tiers_id"), montant_usd=round(float(r["montant"]), 2),
+                        devise_origine=ligne.devise_origine,
+                        libelle_ligne=r.get("libelle") or ligne.libelle_ligne)
+                split_ids.add(ligne.id)
+                splits_faits += 1
+
+            changements = []
+            for r in payload.get("reclassements", []):
+                ligne = LigneEcriture.objects.filter(id=r.get("ligne_id")).first()
+                if not ligne or ligne.ecriture_id != e.id:
+                    return refus({"detail": "Ligne invalide."}, status=400)
+                if ligne.id in split_ids:
+                    continue
                 if r["compte_numero"] not in comptes_valides:
                     return refus({"detail": f"Compte {r['compte_numero']} absent du plan "
                                                f"comptable."}, status=400)
-            # 1ère répartition réutilise la ligne existante
-            first = repartition[0]
-            ligne.compte_numero = first["compte_numero"]
-            ligne.montant_usd = round(float(first["montant"]), 2)
-            ligne.tiers_id = first.get("tiers_id")
-            if first.get("libelle"):
-                ligne.libelle_ligne = first["libelle"]
-            ligne.save()
-            # les suivantes = nouvelles lignes, même sens
-            for r in repartition[1:]:
-                ordre_max += 1
-                LigneEcriture.objects.create(
-                    ecriture_id=e.id, societe_id=e.societe_id, ordre=ordre_max,
-                    sens=ligne.sens, compte_numero=r["compte_numero"],
-                    tiers_id=r.get("tiers_id"), montant_usd=round(float(r["montant"]), 2),
-                    devise_origine=ligne.devise_origine,
-                    libelle_ligne=r.get("libelle") or ligne.libelle_ligne)
-            split_ids.add(ligne.id)
-            splits_faits += 1
+                if ligne.compte_numero != r["compte_numero"]:
+                    changements.append({"ligne": str(ligne.id), "de": ligne.compte_numero,
+                                        "vers": r["compte_numero"]})
+                    ligne.compte_numero = r["compte_numero"]
+                    ligne.save(update_fields=["compte_numero"])
 
-        changements = []
-        for r in payload.get("reclassements", []):
-            ligne = LigneEcriture.objects.filter(id=r.get("ligne_id")).first()
-            if not ligne or ligne.ecriture_id != e.id:
-                return refus({"detail": "Ligne invalide."}, status=400)
-            if ligne.id in split_ids:
-                continue
-            if r["compte_numero"] not in comptes_valides:
-                return refus({"detail": f"Compte {r['compte_numero']} absent du plan "
-                                           f"comptable."}, status=400)
-            if ligne.compte_numero != r["compte_numero"]:
-                changements.append({"ligne": str(ligne.id), "de": ligne.compte_numero,
-                                    "vers": r["compte_numero"]})
-                ligne.compte_numero = r["compte_numero"]
-                ligne.save(update_fields=["compte_numero"])
-
-        e.statut = "valide"
-        e.save(update_fields=["statut"])
-        services.enregistrer_audit(request.user.id, "VALIDATE", "ecriture", e.id,
-                                   {"reclassements": changements, "splits": splits_faits}
-                                   if (changements or splits_faits) else None,
-                                   {"statut": "valide"})
-    return Response({"id": str(e.id), "statut": "valide",
-                     "reclassements": len(changements), "splits": splits_faits})
-
-
-@api_view(["GET"])
-def grand_livre(request):
-    """Détail des mouvements par compte, avec solde progressif, journal et tiers."""
-    sid = _societe_param(request)
-    _acces_compta(request, sid)
-    compte = request.query_params.get("compte")
-    statut = request.query_params.get("statut")
-    tiers_id = request.query_params.get("tiers_id")
-    journaux = dict(Journal.objects.filter(societe_id=sid).values_list("id", "code"))
-    tiers_noms = dict(Tiers.objects.values_list("id", "nom"))
-
-    q = (LigneEcriture.objects.filter(societe_id=sid)
-         .select_related("ecriture")
-         .order_by("compte_numero", "ecriture__date_ecriture", "ecriture__numero"))
-    if compte:
-        q = q.filter(compte_numero__startswith=compte)
-    if statut:
-        q = q.filter(ecriture__statut=statut)
-    if tiers_id:
-        q = q.filter(tiers_id=tiers_id)
-    intitules = dict(Compte.objects.filter(societe_id=sid).values_list("numero", "intitule"))
-    comptes: dict[str, dict] = {}
-    for ligne in q:
-        ecr = ligne.ecriture
-        c = comptes.setdefault(ligne.compte_numero, {
-            "compte": ligne.compte_numero, "intitule": intitules.get(ligne.compte_numero, ""),
-            "mouvements": [], "_solde": 0.0})
-        d = float(ligne.montant_usd) if ligne.sens == "D" else 0.0
-        cr = float(ligne.montant_usd) if ligne.sens == "C" else 0.0
-        c["_solde"] += d - cr
-        c["mouvements"].append({
-            "date": ecr.date_ecriture.isoformat(), "piece": ecr.numero,
-            "journal": journaux.get(ecr.journal_id, ""),
-            "tiers": tiers_noms.get(ligne.tiers_id) if ligne.tiers_id else None,
-            "lettrage": ligne.lettrage_code,
-            "libelle": ligne.libelle_ligne or ecr.libelle,
-            "debit": round(d, 2), "credit": round(cr, 2), "solde": round(c["_solde"], 2),
-            "statut": ecr.statut})
-    for c in comptes.values():
-        c["solde"] = round(c.pop("_solde"), 2)
-    return Response(sorted(comptes.values(), key=lambda x: x["compte"]))
+            e.statut = "valide"
+            e.save(update_fields=["statut"])
+            services.enregistrer_audit(request.user.id, "VALIDATE", "ecriture", e.id,
+                                       {"reclassements": changements, "splits": splits_faits}
+                                       if (changements or splits_faits) else None,
+                                       {"statut": "valide"})
+        return Response({"id": str(e.id), "statut": "valide",
+                         "reclassements": len(changements), "splits": splits_faits})
 
 
 # ── Plan comptable ───────────────────────────────────────────────────
@@ -233,134 +252,113 @@ def _compte_dict(c: Compte) -> dict:
             "classe": c.classe, "auxiliaire": bool(c.auxiliaire), "actif": bool(c.actif)}
 
 
-@api_view(["GET", "POST"])
-def plan_comptable(request):
-    sid = _societe_param(request)
-    _acces_compta(request, sid)
-    if request.method == "POST":
+class CompteViewSet(MetierModelViewSet):
+    """Ressource Compte ; contrats HTTP et validations métier conservés."""
+    queryset = Compte.objects.none()
+    serializer_class = CompteSerializer
+    lookup_url_kwarg = 'compte_id'
+
+    def list(self, request):
+        return self._traiter_plan_comptable(request)
+
+
+    def create(self, request):
+        return self._traiter_plan_comptable(request)
+
+
+    def _traiter_plan_comptable(self, request):
+        sid = _societe_param(request)
+        _acces_compta(request, sid)
+        if request.method == "POST":
+            payload = request.data or {}
+            num = (payload.get("numero") or "").strip()
+            intitule = (payload.get("intitule") or "").strip()
+            if not num or not intitule:
+                return refus({"detail": "numero et intitule requis."}, status=422)
+            if Compte.objects.filter(societe_id=sid, numero=num).exists():
+                return refus({"detail": f"Le compte {num} existe déjà."}, status=409)
+            c = Compte.objects.create(societe_id=sid, numero=num, intitule=intitule,
+                                      classe=num[0], auxiliaire=bool(payload.get("auxiliaire")),
+                                      actif=True)
+            services.enregistrer_audit(request.user.id, "INSERT", "compte", c.id, None,
+                                       {"numero": num})
+            return Response(_compte_dict(c), status=201)
+
+        query = Compte.objects.filter(societe_id=sid)
+        classe = request.query_params.get("classe")
+        if classe:
+            query = query.filter(classe=classe)
+        if _bool_param(request, "actifs_only"):
+            query = query.filter(actif=True)
+        comptes = list(query)
+        q = request.query_params.get("q")
+        if q:
+            ql = q.lower()
+            comptes = [c for c in comptes if ql in c.numero.lower() or ql in c.intitule.lower()]
+        comptes.sort(key=lambda c: c.numero)
+        return Response([_compte_dict(c) for c in comptes])
+
+
+    @action(detail=False, methods=['post'])
+    def charger_syscohada(self, request):
+        """(Ré)initialise le plan SYSCOHADA — n'écrase aucun compte existant."""
+        sid = _societe_param(request)
+        _acces_compta(request, sid)
+        crees = plan_syscohada.charger_plan(sid)
+        return Response({"comptes_crees": crees})
+
+
+    def partial_update(self, request, compte_id):
+        c = Compte.objects.filter(id=compte_id).first()
+        if not c:
+            return refus({"detail": "Compte introuvable."}, status=404)
+        _acces_compta(request, c.societe_id)
         payload = request.data or {}
-        num = (payload.get("numero") or "").strip()
-        intitule = (payload.get("intitule") or "").strip()
-        if not num or not intitule:
-            return refus({"detail": "numero et intitule requis."}, status=422)
-        if Compte.objects.filter(societe_id=sid, numero=num).exists():
-            return refus({"detail": f"Le compte {num} existe déjà."}, status=409)
-        c = Compte.objects.create(societe_id=sid, numero=num, intitule=intitule,
-                                  classe=num[0], auxiliaire=bool(payload.get("auxiliaire")),
-                                  actif=True)
-        services.enregistrer_audit(request.user.id, "INSERT", "compte", c.id, None,
-                                   {"numero": num})
-        return Response(_compte_dict(c), status=201)
-
-    query = Compte.objects.filter(societe_id=sid)
-    classe = request.query_params.get("classe")
-    if classe:
-        query = query.filter(classe=classe)
-    if _bool_param(request, "actifs_only"):
-        query = query.filter(actif=True)
-    comptes = list(query)
-    q = request.query_params.get("q")
-    if q:
-        ql = q.lower()
-        comptes = [c for c in comptes if ql in c.numero.lower() or ql in c.intitule.lower()]
-    comptes.sort(key=lambda c: c.numero)
-    return Response([_compte_dict(c) for c in comptes])
-
-
-@api_view(["PATCH"])
-def maj_compte(request, compte_id):
-    c = Compte.objects.filter(id=compte_id).first()
-    if not c:
-        return refus({"detail": "Compte introuvable."}, status=404)
-    _acces_compta(request, c.societe_id)
-    payload = request.data or {}
-    if payload.get("intitule") is not None:
-        c.intitule = payload["intitule"].strip()
-    if payload.get("auxiliaire") is not None:
-        c.auxiliaire = payload["auxiliaire"]
-    if payload.get("actif") is not None:
-        c.actif = payload["actif"]
-    c.save()
-    return Response(_compte_dict(c))
-
-
-@api_view(["POST"])
-def charger_syscohada(request):
-    """(Ré)initialise le plan SYSCOHADA — n'écrase aucun compte existant."""
-    sid = _societe_param(request)
-    _acces_compta(request, sid)
-    crees = plan_syscohada.charger_plan(sid)
-    return Response({"comptes_crees": crees})
+        if payload.get("intitule") is not None:
+            c.intitule = payload["intitule"].strip()
+        if payload.get("auxiliaire") is not None:
+            c.auxiliaire = payload["auxiliaire"]
+        if payload.get("actif") is not None:
+            c.actif = payload["actif"]
+        c.save()
+        return Response(_compte_dict(c))
 
 
 # ── Journaux ─────────────────────────────────────────────────────────
-@api_view(["GET", "POST"])
-def journaux(request):
-    sid = _societe_param(request)
-    _acces_compta(request, sid)
-    if request.method == "POST":
-        payload = request.data or {}
-        code = (payload.get("code") or "").strip().upper()
-        libelle = (payload.get("libelle") or "").strip()
-        if not code or not libelle:
-            return refus({"detail": "code et libelle requis."}, status=422)
-        if Journal.objects.filter(societe_id=sid, code=code).exists():
-            return refus({"detail": f"Le journal {code} existe déjà."}, status=409)
-        j = Journal.objects.create(societe_id=sid, code=code, libelle=libelle,
-                                   type=payload.get("type", "od"))
-        return Response({"id": str(j.id), "code": j.code, "libelle": j.libelle,
-                         "type": j.type}, status=201)
-    js = Journal.objects.filter(societe_id=sid).order_by("code")
-    return Response([{"id": str(j.id), "code": j.code, "libelle": j.libelle,
-                      "type": j.type, "actif": bool(j.actif)} for j in js])
+class JournalViewSet(MetierModelViewSet):
+    """Ressource Journal ; contrats HTTP et validations métier conservés."""
+    queryset = Journal.objects.none()
+    serializer_class = JournalSerializer
+
+    def list(self, request):
+        return self._traiter_journaux(request)
+
+
+    def create(self, request):
+        return self._traiter_journaux(request)
+
+
+    def _traiter_journaux(self, request):
+        sid = _societe_param(request)
+        _acces_compta(request, sid)
+        if request.method == "POST":
+            payload = request.data or {}
+            code = (payload.get("code") or "").strip().upper()
+            libelle = (payload.get("libelle") or "").strip()
+            if not code or not libelle:
+                return refus({"detail": "code et libelle requis."}, status=422)
+            if Journal.objects.filter(societe_id=sid, code=code).exists():
+                return refus({"detail": f"Le journal {code} existe déjà."}, status=409)
+            j = Journal.objects.create(societe_id=sid, code=code, libelle=libelle,
+                                       type=payload.get("type", "od"))
+            return Response({"id": str(j.id), "code": j.code, "libelle": j.libelle,
+                             "type": j.type}, status=201)
+        js = Journal.objects.filter(societe_id=sid).order_by("code")
+        return Response([{"id": str(j.id), "code": j.code, "libelle": j.libelle,
+                          "type": j.type, "actif": bool(j.actif)} for j in js])
 
 
 # ── Saisie manuelle d'écriture (OD) ──────────────────────────────────
-@api_view(["POST"])
-def saisir_ecriture(request):
-    """Saisie manuelle d'une écriture équilibrée (OD), en USD — comptable/DFI."""
-    sid = _societe_param(request)
-    _acces_compta(request, sid)
-    payload = request.data or {}
-    lignes_in = payload.get("lignes") or []
-    if len(lignes_in) < 2:
-        return refus({"detail": "Au moins deux lignes (un débit et un crédit)."},
-                        status=400)
-    for l in lignes_in:
-        if l.get("sens") not in ("D", "C") or not l.get("compte") \
-                or float(l.get("montant") or 0) <= 0:
-            return refus({"detail": "Ligne invalide (sens D/C, compte et montant > 0)."},
-                            status=422)
-
-    total_d = round(sum(float(l["montant"]) for l in lignes_in if l["sens"] == "D"), 2)
-    total_c = round(sum(float(l["montant"]) for l in lignes_in if l["sens"] == "C"), 2)
-    if total_d != total_c:
-        return refus({"detail": f"Écriture déséquilibrée : débit {total_d} ≠ "
-                                   f"crédit {total_c}."}, status=400)
-
-    comptes_valides = set(Compte.objects.filter(societe_id=sid)
-                          .values_list("numero", flat=True))
-    lignes = []
-    for l in lignes_in:
-        if l["compte"] not in comptes_valides:
-            return refus({"detail": f"Compte {l['compte']} absent du plan comptable."},
-                            status=400)
-        lignes.append({"sens": l["sens"], "compte": l["compte"],
-                       "montant_usd": round(float(l["montant"]), 2),
-                       "tiers_id": l.get("tiers_id"), "libelle": l.get("libelle")})
-
-    jcode_in = (payload.get("journal_code") or "OD").upper()
-    j = Journal.objects.filter(societe_id=sid, code=jcode_in).first()
-    jcode = j.code if j else jcode_in
-    jour = (date.fromisoformat(payload["date_ecriture"])
-            if payload.get("date_ecriture") else date.today())
-    with transaction.atomic():
-        ecr = comptabilite.post_ecriture(
-            sid, jcode, j.libelle if j else "Opérations diverses", j.type if j else "od",
-            jour, payload.get("libelle") or "", lignes,
-            "od_manuelle", "saisie_manuelle", None, payload.get("numero_piece"),
-            request.user.id, statut="valide")
-    return Response(_ecriture_dict(ecr), status=201)
 
 
 # ── Lettrage des comptes de tiers ────────────────────────────────────
@@ -371,48 +369,6 @@ def _num_to_alpha(n: int) -> str:
         n, r = divmod(n - 1, 26)
         s = chr(65 + r) + s
     return s
-
-
-@api_view(["GET", "POST"])
-def lettrage(request):
-    if request.method == "POST":
-        return _lettrer(request)
-    sid = _societe_param(request)
-    _acces_compta(request, sid)
-    compte = request.query_params.get("compte")
-    if not compte:
-        return refus({"detail": "compte requis"}, status=422)
-    tiers_id = request.query_params.get("tiers_id")
-    non_lettres = _bool_param(request, "non_lettres")
-    journaux_d = dict(Journal.objects.filter(societe_id=sid).values_list("id", "code"))
-    tiers_noms = dict(Tiers.objects.values_list("id", "nom"))
-    compte_obj = Compte.objects.filter(societe_id=sid, numero=compte).first()
-
-    q = (LigneEcriture.objects.filter(societe_id=sid, compte_numero=compte)
-         .select_related("ecriture")
-         .order_by("ecriture__date_ecriture", "ecriture__numero"))
-    if tiers_id:
-        q = q.filter(tiers_id=tiers_id)
-
-    lignes, solde, non_lettre = [], 0.0, 0.0
-    for l in q:
-        e = l.ecriture
-        d = float(l.montant_usd) if l.sens == "D" else 0.0
-        c = float(l.montant_usd) if l.sens == "C" else 0.0
-        solde += d - c
-        if not l.lettrage_code:
-            non_lettre += d - c
-        if non_lettres and l.lettrage_code:
-            continue
-        lignes.append({
-            "id": str(l.id), "date": e.date_ecriture.isoformat(), "piece": e.numero,
-            "journal": journaux_d.get(e.journal_id, ""), "libelle": l.libelle_ligne or e.libelle,
-            "tiers": tiers_noms.get(l.tiers_id) if l.tiers_id else None,
-            "debit": round(d, 2), "credit": round(c, 2), "lettrage": l.lettrage_code,
-            "statut": e.statut})
-    return Response({"compte": compte, "intitule": compte_obj.intitule if compte_obj else "",
-                     "lignes": lignes, "solde": round(solde, 2),
-                     "solde_non_lettre": round(non_lettre, 2)})
 
 
 def _lettrer(request):
@@ -450,25 +406,6 @@ def _lettrer(request):
     return Response({"code": code, "compte": compte, "lignes": len(lignes)})
 
 
-@api_view(["POST"])
-def delettrer(request):
-    """Annule un lettrage (retire le code des lignes concernées)."""
-    payload = request.data or {}
-    sid = payload.get("societe_id")
-    _acces_compta(request, sid)
-    lignes = list(LigneEcriture.objects.filter(
-        societe_id=sid, compte_numero=payload.get("compte"),
-        lettrage_code=payload.get("code")))
-    if not lignes:
-        return refus({"detail": "Lettrage introuvable."}, status=404)
-    for l in lignes:
-        l.lettrage_code = None
-        l.save(update_fields=["lettrage_code"])
-    services.enregistrer_audit(request.user.id, "DELETTRAGE", "compte", None, None,
-                               {"compte": payload.get("compte"), "code": payload.get("code")})
-    return Response({"delettre": len(lignes)})
-
-
 # ── Rapprochement bancaire ───────────────────────────────────────────
 def _solde_compte(societe_id, compte: str, rapproche: bool | None = None) -> float:
     q = LigneEcriture.objects.filter(societe_id=societe_id, compte_numero=compte)
@@ -482,51 +419,12 @@ def _solde_compte(societe_id, compte: str, rapproche: bool | None = None) -> flo
     return round(s, 2)
 
 
-@api_view(["GET"])
-def rappro_a_pointer(request):
-    """Lignes du compte de banque non encore rapprochées (à pointer)."""
-    sid = _societe_param(request)
-    _acces_compta(request, sid)
-    compte = request.query_params.get("compte", "521")
-    journaux_d = dict(Journal.objects.filter(societe_id=sid).values_list("id", "code"))
-    compte_obj = Compte.objects.filter(societe_id=sid, numero=compte).first()
-    rows = (LigneEcriture.objects.filter(societe_id=sid, compte_numero=compte,
-                                         rapprochement_id__isnull=True)
-            .select_related("ecriture")
-            .order_by("ecriture__date_ecriture", "ecriture__numero"))
-    lignes = [{
-        "id": str(l.id), "date": l.ecriture.date_ecriture.isoformat(),
-        "piece": l.ecriture.numero,
-        "journal": journaux_d.get(l.ecriture.journal_id, ""),
-        "libelle": l.libelle_ligne or l.ecriture.libelle,
-        "debit": round(float(l.montant_usd), 2) if l.sens == "D" else 0.0,
-        "credit": round(float(l.montant_usd), 2) if l.sens == "C" else 0.0,
-        "statut": l.ecriture.statut} for l in rows]
-    return Response({"compte": compte, "intitule": compte_obj.intitule if compte_obj else "",
-                     "lignes": lignes,
-                     "solde_comptable": _solde_compte(sid, compte),
-                     "solde_rapproche": _solde_compte(sid, compte, rapproche=True)})
-
-
 def _rappro_dict(r: RapprochementBancaire) -> dict:
     return {"id": str(r.id), "compte": r.compte, "date_releve": r.date_releve.isoformat(),
             "solde_releve": float(r.solde_releve_usd),
             "solde_comptable": float(r.solde_comptable_usd),
             "solde_rapproche": float(r.solde_rapproche_usd), "ecart": float(r.ecart_usd),
             "statut": r.statut, "date": r.created_at.isoformat() if r.created_at else None}
-
-
-@api_view(["GET", "POST"])
-def rapprochement(request):
-    if request.method == "POST":
-        return _creer_rapprochement(request)
-    sid = _societe_param(request)
-    _acces_compta(request, sid)
-    q = RapprochementBancaire.objects.filter(societe_id=sid)
-    compte = request.query_params.get("compte")
-    if compte:
-        q = q.filter(compte=compte)
-    return Response([_rappro_dict(r) for r in q.order_by("-date_releve")])
 
 
 def _creer_rapprochement(request):
@@ -567,52 +465,78 @@ def _creer_rapprochement(request):
     return Response(_rappro_dict(r), status=201)
 
 
-@api_view(["POST"])
-def annuler_rapprochement(request, rappro_id):
-    """Annule un rapprochement : dépointe ses lignes."""
-    r = RapprochementBancaire.objects.filter(id=rappro_id).first()
-    if not r:
-        return refus({"detail": "Rapprochement introuvable."}, status=404)
-    _acces_compta(request, r.societe_id)
-    lignes = list(LigneEcriture.objects.filter(rapprochement_id=rappro_id))
-    with transaction.atomic():
-        for l in lignes:
-            l.rapprochement_id = None
-            l.save(update_fields=["rapprochement_id"])
-        r.delete()
-        services.enregistrer_audit(request.user.id, "ANNUL_RAPPROCHEMENT",
-                                   "rapprochement_bancaire", rappro_id, None,
-                                   {"lignes": len(lignes)})
-    return Response({"annule": True, "lignes_depointees": len(lignes)})
+class RapprochementViewSet(MetierModelViewSet):
+    """Ressource Rapprochement ; contrats HTTP et validations métier conservés."""
+    queryset = RapprochementBancaire.objects.none()
+    serializer_class = RapprochementBancaireSerializer
+    lookup_url_kwarg = 'rappro_id'
+
+    def list(self, request):
+        return self._traiter_rapprochement(request)
+
+
+    def create(self, request):
+        return self._traiter_rapprochement(request)
+
+
+    def _traiter_rapprochement(self, request):
+        if request.method == "POST":
+            return _creer_rapprochement(request)
+        sid = _societe_param(request)
+        _acces_compta(request, sid)
+        q = RapprochementBancaire.objects.filter(societe_id=sid)
+        compte = request.query_params.get("compte")
+        if compte:
+            q = q.filter(compte=compte)
+        return Response([_rappro_dict(r) for r in q.order_by("-date_releve")])
+
+
+    @action(detail=False, methods=['get'])
+    def a_pointer(self, request):
+        """Lignes du compte de banque non encore rapprochées (à pointer)."""
+        sid = _societe_param(request)
+        _acces_compta(request, sid)
+        compte = request.query_params.get("compte", "521")
+        journaux_d = dict(Journal.objects.filter(societe_id=sid).values_list("id", "code"))
+        compte_obj = Compte.objects.filter(societe_id=sid, numero=compte).first()
+        rows = (LigneEcriture.objects.filter(societe_id=sid, compte_numero=compte,
+                                             rapprochement_id__isnull=True)
+                .select_related("ecriture")
+                .order_by("ecriture__date_ecriture", "ecriture__numero"))
+        lignes = [{
+            "id": str(l.id), "date": l.ecriture.date_ecriture.isoformat(),
+            "piece": l.ecriture.numero,
+            "journal": journaux_d.get(l.ecriture.journal_id, ""),
+            "libelle": l.libelle_ligne or l.ecriture.libelle,
+            "debit": round(float(l.montant_usd), 2) if l.sens == "D" else 0.0,
+            "credit": round(float(l.montant_usd), 2) if l.sens == "C" else 0.0,
+            "statut": l.ecriture.statut} for l in rows]
+        return Response({"compte": compte, "intitule": compte_obj.intitule if compte_obj else "",
+                         "lignes": lignes,
+                         "solde_comptable": _solde_compte(sid, compte),
+                         "solde_rapproche": _solde_compte(sid, compte, rapproche=True)})
+
+
+    @action(detail=True, methods=['post'])
+    def annuler(self, request, rappro_id):
+        """Annule un rapprochement : dépointe ses lignes."""
+        r = RapprochementBancaire.objects.filter(id=rappro_id).first()
+        if not r:
+            return refus({"detail": "Rapprochement introuvable."}, status=404)
+        _acces_compta(request, r.societe_id)
+        lignes = list(LigneEcriture.objects.filter(rapprochement_id=rappro_id))
+        with transaction.atomic():
+            for l in lignes:
+                l.rapprochement_id = None
+                l.save(update_fields=["rapprochement_id"])
+            r.delete()
+            services.enregistrer_audit(request.user.id, "ANNUL_RAPPROCHEMENT",
+                                       "rapprochement_bancaire", rappro_id, None,
+                                       {"lignes": len(lignes)})
+        return Response({"annule": True, "lignes_depointees": len(lignes)})
 
 
 # ── États financiers OHADA + cockpit DAF ─────────────────────────────
-@api_view(["GET"])
-def compte_resultat(request):
-    sid = _societe_param(request)
-    _acces_compta(request, sid)
-    return Response(etats_financiers.compte_resultat(sid, request.query_params.get("statut")))
-
-
-@api_view(["GET"])
-def bilan(request):
-    sid = _societe_param(request)
-    _acces_compta(request, sid)
-    return Response(etats_financiers.bilan(sid, request.query_params.get("statut")))
-
-
-@api_view(["GET"])
-def tft(request):
-    sid = _societe_param(request)
-    _acces_compta(request, sid)
-    return Response(etats_financiers.tft(sid, request.query_params.get("statut")))
-
-
-@api_view(["GET"])
-def cockpit(request):
-    sid = _societe_param(request)
-    _acces_compta(request, sid)
-    return Response(etats_financiers.cockpit(sid))
 
 
 # ── Comptes de configuration (imputations des écritures automatiques) ─
@@ -649,51 +573,235 @@ def _set_parametre(cle: str, societe_id, valeur: str) -> None:
                                  type_valeur="string")
 
 
-@api_view(["GET", "POST"])
-def comptes_config(request):
-    sid = _societe_param(request)
-    _acces_compta(request, sid)
-    if request.method == "POST":
-        payload = request.data or {}
-        known = {c[0] for c in COMPTES_CONFIG}
-        n = 0
-        for cle, val in (payload.get("config") or {}).items():
-            if cle in known and val and val.strip():
-                _set_parametre(f"compte.{cle}", sid, val.strip())
-                n += 1
-        if payload.get("tva_taux_defaut") is not None:
-            _set_parametre("tva.taux_defaut", sid, str(payload["tva_taux_defaut"]))
-        services.enregistrer_audit(request.user.id, "CONFIG", "comptes_config", None, None,
-                                   {"maj": n})
-        return Response({"ok": True, "modifies": n})
-
-    intitules = dict(Compte.objects.filter(societe_id=sid).values_list("numero", "intitule"))
-    comptes = []
-    for cle, libelle, defaut in COMPTES_CONFIG:
-        val = services.get_parametre(f"compte.{cle}", sid, defaut)
-        comptes.append({"cle": cle, "libelle": libelle, "valeur": val, "defaut": defaut,
-                        "intitule": intitules.get(val, "")})
-    tva = services.get_parametre("tva.taux_defaut", sid, "16")
-    return Response({"comptes": comptes, "tva_taux_defaut": float(tva)})
-
-
 # ── Revue comptable (validation des pièces avant définitif) ──────────
-@api_view(["GET", "POST"])
-def revue_config(request):
-    """Quels flux passent par une validation du comptable avant définitif."""
-    sid = _societe_param(request)
-    _acces_compta(request, sid)
-    if request.method == "POST":
+class EtatComptableViewSet(MetierViewSet):
+    """Ressource EtatComptable ; contrats HTTP et validations métier conservés."""
+
+    @action(detail=False, methods=['get'])
+    def grand_livre(self, request):
+        """Détail des mouvements par compte, avec solde progressif, journal et tiers."""
+        sid = _societe_param(request)
+        _acces_compta(request, sid)
+        compte = request.query_params.get("compte")
+        statut = request.query_params.get("statut")
+        tiers_id = request.query_params.get("tiers_id")
+        journaux = dict(Journal.objects.filter(societe_id=sid).values_list("id", "code"))
+        tiers_noms = dict(Tiers.objects.values_list("id", "nom"))
+
+        q = (LigneEcriture.objects.filter(societe_id=sid)
+             .select_related("ecriture")
+             .order_by("compte_numero", "ecriture__date_ecriture", "ecriture__numero"))
+        if compte:
+            q = q.filter(compte_numero__startswith=compte)
+        if statut:
+            q = q.filter(ecriture__statut=statut)
+        if tiers_id:
+            q = q.filter(tiers_id=tiers_id)
+        intitules = dict(Compte.objects.filter(societe_id=sid).values_list("numero", "intitule"))
+        comptes: dict[str, dict] = {}
+        for ligne in q:
+            ecr = ligne.ecriture
+            c = comptes.setdefault(ligne.compte_numero, {
+                "compte": ligne.compte_numero, "intitule": intitules.get(ligne.compte_numero, ""),
+                "mouvements": [], "_solde": 0.0})
+            d = float(ligne.montant_usd) if ligne.sens == "D" else 0.0
+            cr = float(ligne.montant_usd) if ligne.sens == "C" else 0.0
+            c["_solde"] += d - cr
+            c["mouvements"].append({
+                "date": ecr.date_ecriture.isoformat(), "piece": ecr.numero,
+                "journal": journaux.get(ecr.journal_id, ""),
+                "tiers": tiers_noms.get(ligne.tiers_id) if ligne.tiers_id else None,
+                "lettrage": ligne.lettrage_code,
+                "libelle": ligne.libelle_ligne or ecr.libelle,
+                "debit": round(d, 2), "credit": round(cr, 2), "solde": round(c["_solde"], 2),
+                "statut": ecr.statut})
+        for c in comptes.values():
+            c["solde"] = round(c.pop("_solde"), 2)
+        return Response(sorted(comptes.values(), key=lambda x: x["compte"]))
+
+
+    @action(detail=False, methods=['get'])
+    def get_lettrage(self, request):
+        return self._traiter_lettrage(request)
+
+
+    @action(detail=False, methods=['post'])
+    def post_lettrage(self, request):
+        return self._traiter_lettrage(request)
+
+
+    def _traiter_lettrage(self, request):
+        if request.method == "POST":
+            return _lettrer(request)
+        sid = _societe_param(request)
+        _acces_compta(request, sid)
+        compte = request.query_params.get("compte")
+        if not compte:
+            return refus({"detail": "compte requis"}, status=422)
+        tiers_id = request.query_params.get("tiers_id")
+        non_lettres = _bool_param(request, "non_lettres")
+        journaux_d = dict(Journal.objects.filter(societe_id=sid).values_list("id", "code"))
+        tiers_noms = dict(Tiers.objects.values_list("id", "nom"))
+        compte_obj = Compte.objects.filter(societe_id=sid, numero=compte).first()
+
+        q = (LigneEcriture.objects.filter(societe_id=sid, compte_numero=compte)
+             .select_related("ecriture")
+             .order_by("ecriture__date_ecriture", "ecriture__numero"))
+        if tiers_id:
+            q = q.filter(tiers_id=tiers_id)
+
+        lignes, solde, non_lettre = [], 0.0, 0.0
+        for l in q:
+            e = l.ecriture
+            d = float(l.montant_usd) if l.sens == "D" else 0.0
+            c = float(l.montant_usd) if l.sens == "C" else 0.0
+            solde += d - c
+            if not l.lettrage_code:
+                non_lettre += d - c
+            if non_lettres and l.lettrage_code:
+                continue
+            lignes.append({
+                "id": str(l.id), "date": e.date_ecriture.isoformat(), "piece": e.numero,
+                "journal": journaux_d.get(e.journal_id, ""), "libelle": l.libelle_ligne or e.libelle,
+                "tiers": tiers_noms.get(l.tiers_id) if l.tiers_id else None,
+                "debit": round(d, 2), "credit": round(c, 2), "lettrage": l.lettrage_code,
+                "statut": e.statut})
+        return Response({"compte": compte, "intitule": compte_obj.intitule if compte_obj else "",
+                         "lignes": lignes, "solde": round(solde, 2),
+                         "solde_non_lettre": round(non_lettre, 2)})
+
+
+    @action(detail=False, methods=['post'])
+    def delettrage(self, request):
+        """Annule un lettrage (retire le code des lignes concernées)."""
         payload = request.data or {}
-        if payload.get("revue_achats") is not None:
-            _set_parametre("compta.revue_achats", sid, "1" if payload["revue_achats"] else "0")
-        if payload.get("revue_ventes") is not None:
-            _set_parametre("compta.revue_ventes", sid, "1" if payload["revue_ventes"] else "0")
-        services.enregistrer_audit(request.user.id, "CONFIG", "revue_config", None, None,
-                                   {"achats": payload.get("revue_achats"),
-                                    "ventes": payload.get("revue_ventes")})
-        return Response({"ok": True})
-    return Response({
-        "revue_achats": services.get_parametre("compta.revue_achats", sid, "1") == "1",
-        "revue_ventes": services.get_parametre("compta.revue_ventes", sid, "0") == "1",
-    })
+        sid = payload.get("societe_id")
+        _acces_compta(request, sid)
+        lignes = list(LigneEcriture.objects.filter(
+            societe_id=sid, compte_numero=payload.get("compte"),
+            lettrage_code=payload.get("code")))
+        if not lignes:
+            return refus({"detail": "Lettrage introuvable."}, status=404)
+        for l in lignes:
+            l.lettrage_code = None
+            l.save(update_fields=["lettrage_code"])
+        services.enregistrer_audit(request.user.id, "DELETTRAGE", "compte", None, None,
+                                   {"compte": payload.get("compte"), "code": payload.get("code")})
+        return Response({"delettre": len(lignes)})
+
+
+    @action(detail=False, methods=['get'])
+    def compte_resultat(self, request):
+        sid = _societe_param(request)
+        _acces_compta(request, sid)
+        return Response(etats_financiers.compte_resultat(sid, request.query_params.get("statut")))
+
+
+    @action(detail=False, methods=['get'])
+    def bilan(self, request):
+        sid = _societe_param(request)
+        _acces_compta(request, sid)
+        return Response(etats_financiers.bilan(sid, request.query_params.get("statut")))
+
+
+    @action(detail=False, methods=['get'])
+    def tft(self, request):
+        sid = _societe_param(request)
+        _acces_compta(request, sid)
+        return Response(etats_financiers.tft(sid, request.query_params.get("statut")))
+
+
+    @action(detail=False, methods=['get'])
+    def cockpit(self, request):
+        sid = _societe_param(request)
+        _acces_compta(request, sid)
+        return Response(etats_financiers.cockpit(sid))
+
+
+    @action(detail=False, methods=['get'])
+    def get_comptes_config(self, request):
+        return self._traiter_comptes_config(request)
+
+
+    @action(detail=False, methods=['post'])
+    def post_comptes_config(self, request):
+        return self._traiter_comptes_config(request)
+
+
+    def _traiter_comptes_config(self, request):
+        sid = _societe_param(request)
+        _acces_compta(request, sid)
+        if request.method == "POST":
+            payload = request.data or {}
+            known = {c[0] for c in COMPTES_CONFIG}
+            n = 0
+            for cle, val in (payload.get("config") or {}).items():
+                if cle in known and val and val.strip():
+                    _set_parametre(f"compte.{cle}", sid, val.strip())
+                    n += 1
+            if payload.get("tva_taux_defaut") is not None:
+                _set_parametre("tva.taux_defaut", sid, str(payload["tva_taux_defaut"]))
+            services.enregistrer_audit(request.user.id, "CONFIG", "comptes_config", None, None,
+                                       {"maj": n})
+            return Response({"ok": True, "modifies": n})
+
+        intitules = dict(Compte.objects.filter(societe_id=sid).values_list("numero", "intitule"))
+        comptes = []
+        for cle, libelle, defaut in COMPTES_CONFIG:
+            val = services.get_parametre(f"compte.{cle}", sid, defaut)
+            comptes.append({"cle": cle, "libelle": libelle, "valeur": val, "defaut": defaut,
+                            "intitule": intitules.get(val, "")})
+        tva = services.get_parametre("tva.taux_defaut", sid, "16")
+        return Response({"comptes": comptes, "tva_taux_defaut": float(tva)})
+
+
+    @action(detail=False, methods=['get'])
+    def get_revue_config(self, request):
+        return self._traiter_revue_config(request)
+
+
+    @action(detail=False, methods=['post'])
+    def post_revue_config(self, request):
+        return self._traiter_revue_config(request)
+
+
+    def _traiter_revue_config(self, request):
+        """Quels flux passent par une validation du comptable avant définitif."""
+        sid = _societe_param(request)
+        _acces_compta(request, sid)
+        if request.method == "POST":
+            payload = request.data or {}
+            if payload.get("revue_achats") is not None:
+                _set_parametre("compta.revue_achats", sid, "1" if payload["revue_achats"] else "0")
+            if payload.get("revue_ventes") is not None:
+                _set_parametre("compta.revue_ventes", sid, "1" if payload["revue_ventes"] else "0")
+            services.enregistrer_audit(request.user.id, "CONFIG", "revue_config", None, None,
+                                       {"achats": payload.get("revue_achats"),
+                                        "ventes": payload.get("revue_ventes")})
+            return Response({"ok": True})
+        return Response({
+            "revue_achats": services.get_parametre("compta.revue_achats", sid, "1") == "1",
+            "revue_ventes": services.get_parametre("compta.revue_ventes", sid, "0") == "1",
+        })
+
+
+# Anciens points d’entrée conservés pour les intégrations existantes.
+lister_ecritures = EcritureViewSet.as_view({'get': 'list'}, http_method_names=['get', 'options'], detail=False, basename='ecriture')
+valider_ecriture = EcritureViewSet.as_view({'post': 'valider'}, http_method_names=['post', 'options'], detail=True, basename='ecriture')
+grand_livre = EtatComptableViewSet.as_view({'get': 'grand_livre'}, http_method_names=['get', 'options'], detail=False, basename='etat_comptable')
+plan_comptable = CompteViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='compte')
+maj_compte = CompteViewSet.as_view({'patch': 'partial_update'}, http_method_names=['patch', 'options'], detail=True, basename='compte')
+charger_syscohada = CompteViewSet.as_view({'post': 'charger_syscohada'}, http_method_names=['post', 'options'], detail=False, basename='compte')
+journaux = JournalViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='journal')
+saisir_ecriture = EcritureViewSet.as_view({'post': 'saisie'}, http_method_names=['post', 'options'], detail=False, basename='ecriture')
+lettrage = EtatComptableViewSet.as_view({'get': 'get_lettrage', 'post': 'post_lettrage'}, http_method_names=['get', 'post', 'options'], detail=False, basename='etat_comptable')
+delettrer = EtatComptableViewSet.as_view({'post': 'delettrage'}, http_method_names=['post', 'options'], detail=False, basename='etat_comptable')
+rappro_a_pointer = RapprochementViewSet.as_view({'get': 'a_pointer'}, http_method_names=['get', 'options'], detail=False, basename='rapprochement')
+rapprochement = RapprochementViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='rapprochement')
+annuler_rapprochement = RapprochementViewSet.as_view({'post': 'annuler'}, http_method_names=['post', 'options'], detail=True, basename='rapprochement')
+compte_resultat = EtatComptableViewSet.as_view({'get': 'compte_resultat'}, http_method_names=['get', 'options'], detail=False, basename='etat_comptable')
+bilan = EtatComptableViewSet.as_view({'get': 'bilan'}, http_method_names=['get', 'options'], detail=False, basename='etat_comptable')
+tft = EtatComptableViewSet.as_view({'get': 'tft'}, http_method_names=['get', 'options'], detail=False, basename='etat_comptable')
+cockpit = EtatComptableViewSet.as_view({'get': 'cockpit'}, http_method_names=['get', 'options'], detail=False, basename='etat_comptable')
+comptes_config = EtatComptableViewSet.as_view({'get': 'get_comptes_config', 'post': 'post_comptes_config'}, http_method_names=['get', 'post', 'options'], detail=False, basename='etat_comptable')
+revue_config = EtatComptableViewSet.as_view({'get': 'get_revue_config', 'post': 'post_revue_config'}, http_method_names=['get', 'post', 'options'], detail=False, basename='etat_comptable')

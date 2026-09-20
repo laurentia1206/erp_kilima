@@ -16,6 +16,12 @@ domaines persistants possèdent leurs modèles et migrations.
 Voir [le guide d’architecture](../docs/17-architecture-applications-django.md)
 pour la répartition et la transition sans changement des tables existantes.
 
+Les ressources métier utilisent des `ModelViewSet` avec des `ModelSerializer`
+et des actions explicites pour les validations, paiements et clôtures.
+Les rapports transversaux utilisent des `ViewSet`.
+Voir [le guide ModelViewSet](../docs/19-model-viewsets.md) pour le routage,
+la sérialisation, les transactions et la compatibilité des anciens imports.
+
 ## Utiliser l'installation existante
 
 Depuis ce dossier :

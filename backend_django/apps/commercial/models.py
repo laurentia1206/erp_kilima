@@ -40,7 +40,6 @@ class Facture(models.Model):
         db_table = "facture"
 
 
-
 class LigneFacture(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     facture_id = models.UUIDField()
@@ -61,7 +60,6 @@ class LigneFacture(models.Model):
         db_table = "ligne_facture"
 
 
-
 class FraisFacture(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     facture_id = models.UUIDField()
@@ -80,7 +78,6 @@ class FraisFacture(models.Model):
         db_table = "frais_facture"
 
 
-
 class PaiementFacture(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     facture_id = models.UUIDField()
@@ -95,7 +92,6 @@ class PaiementFacture(models.Model):
     class Meta:
         managed = True
         db_table = "paiement_facture"
-
 
 
 class Commande(models.Model):
@@ -120,7 +116,6 @@ class Commande(models.Model):
         db_table = "commande"
 
 
-
 class LigneCommande(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     commande_id = models.UUIDField()
@@ -134,7 +129,6 @@ class LigneCommande(models.Model):
     class Meta:
         managed = True
         db_table = "ligne_commande"
-
 
 
 class Reception(models.Model):
@@ -156,7 +150,6 @@ class Reception(models.Model):
         db_table = "reception"
 
 
-
 class LigneReception(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     reception_id = models.UUIDField()
@@ -174,7 +167,6 @@ class LigneReception(models.Model):
     class Meta:
         managed = True
         db_table = "ligne_reception"
-
 
 
 class FraisReception(models.Model):
@@ -195,7 +187,6 @@ class FraisReception(models.Model):
         db_table = "frais_reception"
 
 
-
 class ListePrix(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     societe_id = models.UUIDField()
@@ -208,7 +199,6 @@ class ListePrix(models.Model):
         db_table = "liste_prix"
 
 
-
 class TarifArticle(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     societe_id = models.UUIDField()
@@ -219,7 +209,6 @@ class TarifArticle(models.Model):
     class Meta:
         managed = True
         db_table = "tarif_article"
-
 
 
 class PointVente(models.Model):
@@ -235,7 +224,6 @@ class PointVente(models.Model):
     class Meta:
         managed = True
         db_table = "point_vente"
-
 
 
 class Devis(models.Model):
@@ -264,7 +252,6 @@ class Devis(models.Model):
         db_table = "devis"
 
 
-
 class LigneDevis(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     devis_id = models.UUIDField()
@@ -285,7 +272,6 @@ class LigneDevis(models.Model):
         db_table = "ligne_devis"
 
 
-
 class Livraison(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     societe_id = models.UUIDField()
@@ -299,7 +285,6 @@ class Livraison(models.Model):
     class Meta:
         managed = True
         db_table = "livraison"
-
 
 
 class LigneLivraison(models.Model):

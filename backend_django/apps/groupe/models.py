@@ -22,7 +22,6 @@ class ReceptionInter(models.Model):
         db_table = "reception_inter"
 
 
-
 class LigneReceptionInter(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     reception_id = models.UUIDField()

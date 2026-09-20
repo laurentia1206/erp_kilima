@@ -33,7 +33,6 @@ class Article(models.Model):
         db_table = "article"
 
 
-
 class MouvementStock(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     societe_id = models.UUIDField()
@@ -51,7 +50,6 @@ class MouvementStock(models.Model):
     class Meta:
         managed = True
         db_table = "mouvement_stock"
-
 
 
 class Depot(models.Model):
@@ -73,7 +71,6 @@ class Depot(models.Model):
         db_table = "depot"
 
 
-
 class StockDepot(models.Model):
     """Solde de stock d'un article dans un dépôt. Invariant :
     Article.stock_qte/valeur = somme des dépôts de la société."""
@@ -86,7 +83,6 @@ class StockDepot(models.Model):
     class Meta:
         managed = True
         db_table = "stock_depot"
-
 
 
 class TransfertDepot(models.Model):
@@ -107,7 +103,6 @@ class TransfertDepot(models.Model):
         db_table = "transfert_depot"
 
 
-
 class LigneTransfertDepot(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     transfert_id = models.UUIDField()
@@ -118,7 +113,6 @@ class LigneTransfertDepot(models.Model):
     class Meta:
         managed = True
         db_table = "ligne_transfert_depot"
-
 
 
 class InventaireDepot(models.Model):
@@ -146,7 +140,6 @@ class InventaireDepot(models.Model):
     class Meta:
         managed = True
         db_table = "inventaire_depot"
-
 
 
 class LigneInventaireDepot(models.Model):

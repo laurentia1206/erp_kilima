@@ -11,8 +11,7 @@ from pathlib import Path
 
 from django.conf import settings as dj_settings
 from django.http import FileResponse, JsonResponse
-from rest_framework.decorators import (api_view, authentication_classes,
-                                       permission_classes)
+from rest_framework.views import APIView
 
 STATIC = dj_settings.FASTAPI_DIR / "static"
 
@@ -41,9 +40,14 @@ def statique(request, chemin: str):
     return _fichier(cible)
 
 
-@api_view(["GET"])
-@authentication_classes([])
-@permission_classes([])
-def health(request):
-    return JsonResponse({"status": "ok", "app": dj_settings.APP_NAME,
-                         "env": dj_settings.ENVIRONMENT})
+class HealthView(APIView):
+    http_method_names = ['get', 'options']
+    authentication_classes = []
+    permission_classes = []
+
+    def get(self, request):
+        return JsonResponse({"status": "ok", "app": dj_settings.APP_NAME,
+                             "env": dj_settings.ENVIRONMENT})
+
+# Compatibilité des imports ; les routes utilisent HealthView.as_view().
+health = HealthView.as_view()

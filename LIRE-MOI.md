@@ -3,6 +3,9 @@
 Cette livraison contient le code actuel, l’interface, les tests, la documentation,
 les pièces jointes disponibles et une copie des données utilisées pour les tests.
 Le back-end est organisé en 13 applications Django métier et un socle commun.
+Ses ressources API utilisent les `ModelViewSet` et `ModelSerializer` de
+Django REST Framework. Les workflows conservent des actions explicites ;
+l’organisation est expliquée dans `docs/19-model-viewsets.md`.
 
 ## Reprendre les tests sur un autre ordinateur Windows
 

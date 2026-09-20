@@ -45,7 +45,6 @@ class Course(models.Model):
         db_table = "course"
 
 
-
 class Camion(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     societe_id = models.UUIDField()
@@ -69,7 +68,6 @@ class Camion(models.Model):
         db_table = "camion"
 
 
-
 class Chauffeur(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     societe_id = models.UUIDField()
@@ -82,7 +80,6 @@ class Chauffeur(models.Model):
     class Meta:
         managed = True
         db_table = "chauffeur"
-
 
 
 class ContratTransport(models.Model):
@@ -103,7 +100,6 @@ class ContratTransport(models.Model):
         db_table = "contrat_transport"
 
 
-
 class TarifContrat(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     contrat_id = models.UUIDField()
@@ -116,7 +112,6 @@ class TarifContrat(models.Model):
         db_table = "tarif_contrat"
 
 
-
 class CourseRequisition(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     course_id = models.UUIDField()
@@ -125,7 +120,6 @@ class CourseRequisition(models.Model):
     class Meta:
         managed = True
         db_table = "course_requisition"
-
 
 
 class PleinCarburant(models.Model):

@@ -18,7 +18,6 @@ class Compte(models.Model):
         db_table = "compte"
 
 
-
 class Exercice(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     societe_id = models.UUIDField()
@@ -32,7 +31,6 @@ class Exercice(models.Model):
         db_table = "exercice"
 
 
-
 class Journal(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     societe_id = models.UUIDField()
@@ -44,7 +42,6 @@ class Journal(models.Model):
     class Meta:
         managed = True
         db_table = "journal"
-
 
 
 class Ecriture(models.Model):
@@ -70,7 +67,6 @@ class Ecriture(models.Model):
         db_table = "ecriture"
 
 
-
 class LigneEcriture(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     ecriture = models.ForeignKey(Ecriture, on_delete=models.DO_NOTHING, db_column="ecriture_id")
@@ -92,7 +88,6 @@ class LigneEcriture(models.Model):
         db_table = "ligne_ecriture"
 
 
-
 class RapprochementBancaire(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     societe_id = models.UUIDField()
@@ -111,7 +106,6 @@ class RapprochementBancaire(models.Model):
         db_table = "rapprochement_bancaire"
 
 
-
 class PreparationTVA(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     societe_id = models.UUIDField()
@@ -126,7 +120,6 @@ class PreparationTVA(models.Model):
         constraints = [models.UniqueConstraint(fields=['societe_id', 'mois'], name='preparation_tva_societe_mois')]
 
 
-
 class AxeAnalytique(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     societe_id = models.UUIDField()
@@ -137,7 +130,6 @@ class AxeAnalytique(models.Model):
     class Meta:
         managed = True
         db_table = "axe_analytique"
-
 
 
 class SectionAnalytique(models.Model):
@@ -151,7 +143,6 @@ class SectionAnalytique(models.Model):
     class Meta:
         managed = True
         db_table = "section_analytique"
-
 
 
 class VentilationAnalytique(models.Model):

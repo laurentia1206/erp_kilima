@@ -29,7 +29,6 @@ class Requisition(models.Model):
         db_table = "requisition"
 
 
-
 class RequisitionLigne(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     requisition_id = models.UUIDField()
@@ -49,7 +48,6 @@ class RequisitionLigne(models.Model):
         db_table = "requisition_ligne"
 
 
-
 class RequisitionCommentaire(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     requisition_id = models.UUIDField()
@@ -61,7 +59,6 @@ class RequisitionCommentaire(models.Model):
     class Meta:
         managed = True
         db_table = "requisition_commentaire"
-
 
 
 class PalierValidation(models.Model):
@@ -79,7 +76,6 @@ class PalierValidation(models.Model):
         db_table = "palier_validation"
 
 
-
 class PalierApprobateur(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     palier = models.ForeignKey(PalierValidation, on_delete=models.DO_NOTHING,
@@ -91,7 +87,6 @@ class PalierApprobateur(models.Model):
     class Meta:
         managed = True
         db_table = "palier_approbateur"
-
 
 
 class Validation(models.Model):
@@ -114,7 +109,6 @@ class Validation(models.Model):
         db_table = "validation"
 
 
-
 class BonReception(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     numero = models.CharField(max_length=32, unique=True)
@@ -135,7 +129,6 @@ class BonReception(models.Model):
     class Meta:
         managed = True
         db_table = "bon_reception"
-
 
 
 class OrdreDepense(models.Model):

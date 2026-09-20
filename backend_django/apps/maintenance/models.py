@@ -32,7 +32,6 @@ class InterventionCamion(models.Model):
         db_table = "intervention_camion"
 
 
-
 class DocumentFlotte(models.Model):
     """Document administratif d'un camion, d'un engin ou d'un chauffeur
     (assurance, contrôle technique, carte rose, permis…) avec date
@@ -55,7 +54,6 @@ class DocumentFlotte(models.Model):
     class Meta:
         managed = True
         db_table = "document_flotte"
-
 
 
 class PlanEntretien(models.Model):

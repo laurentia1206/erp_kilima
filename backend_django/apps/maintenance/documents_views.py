@@ -8,10 +8,14 @@ générique piece_jointe (document_type='document_flotte').
 """
 from __future__ import annotations
 
+from rest_framework.decorators import action
+from core.viewsets import MetierModelViewSet, MetierViewSet
+from apps.maintenance.models import DocumentFlotte
+from apps.maintenance.serializers import DocumentFlotteSerializer
+
 from datetime import date
 
 from django.db import transaction
-from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from core import services as services
@@ -92,91 +96,116 @@ def _lire_cible(payload, sid):
     return {cle: obj.id}, None
 
 
-@api_view(["GET", "POST"])
-def documents(request):
-    sid = _societe_param(request)
-    _acces(request, sid)
-    if request.method == "POST":
+class DocumentFlotteViewSet(MetierModelViewSet):
+    """Ressource DocumentFlotte ; contrats HTTP et validations métier conservés."""
+    queryset = DocumentFlotte.objects.none()
+    serializer_class = DocumentFlotteSerializer
+    lookup_url_kwarg = 'document_id'
+
+    def list(self, request):
+        return self._traiter_documents(request)
+
+
+    def create(self, request):
+        return self._traiter_documents(request)
+
+
+    def _traiter_documents(self, request):
+        sid = _societe_param(request)
+        _acces(request, sid)
+        if request.method == "POST":
+            payload = request.data or {}
+            cible, erreur = _lire_cible(payload, sid)
+            if erreur:
+                return erreur
+            libelle = (payload.get("libelle") or "").strip()
+            if len(libelle) < 2:
+                return refus({"detail": "libelle requis."}, status=422)
+            type_document = payload.get("type_document", "autre")
+            if type_document not in TYPES:
+                return refus({"detail": f"type_document : {', '.join(TYPES)}."},
+                             status=422)
+            champs = {}
+            for cle in ("date_emission", "date_expiration"):
+                if payload.get(cle):
+                    try:
+                        champs[cle] = date.fromisoformat(payload[cle])
+                    except ValueError:
+                        return refus({"detail": f"{cle} invalide."}, status=422)
+            with transaction.atomic():
+                doc = DocumentFlotte.objects.create(
+                    societe_id=sid, **cible, **champs,
+                    type_document=type_document, libelle=libelle,
+                    numero=(payload.get("numero") or "").strip() or None,
+                    note=(payload.get("note") or "").strip() or None,
+                    created_by=request.user.id, created_at=services.maintenant())
+                services.enregistrer_audit(request.user.id, "INSERT",
+                                           "document_flotte", doc.id, None,
+                                           {"libelle": libelle,
+                                            "type": type_document})
+            return Response(_doc_dict(doc), status=201)
+        docs = [_doc_dict(d) for d in DocumentFlotte.objects.filter(societe_id=sid)]
+        # tri : échus d'abord, puis par urgence
+        ordre = {"echu": 0, "bientot": 1, "valide": 2, "permanent": 3}
+        docs.sort(key=lambda d: (ordre[d["etat"]["statut"]],
+                                 d["etat"]["jours_restants"]
+                                 if d["etat"]["jours_restants"] is not None else 99999))
+        alertes = {"echu": sum(1 for d in docs if d["etat"]["statut"] == "echu"),
+                   "bientot": sum(1 for d in docs if d["etat"]["statut"] == "bientot")}
+        return Response({"documents": docs, "alertes": alertes})
+
+
+    def partial_update(self, request, document_id):
+        return self._traiter_maj_document(request, document_id)
+
+
+    def destroy(self, request, document_id):
+        return self._traiter_maj_document(request, document_id)
+
+
+    def _traiter_maj_document(self, request, document_id):
+        doc = DocumentFlotte.objects.filter(id=document_id).first()
+        if not doc:
+            return refus({"detail": "Document introuvable."}, status=404)
+        _acces(request, doc.societe_id)
+        if request.method == "DELETE":
+            with transaction.atomic():
+                services.enregistrer_audit(request.user.id, "DELETE",
+                                           "document_flotte", doc.id,
+                                           {"libelle": doc.libelle}, None)
+                doc.delete()
+            return Response({"ok": True})
         payload = request.data or {}
-        cible, erreur = _lire_cible(payload, sid)
-        if erreur:
-            return erreur
-        libelle = (payload.get("libelle") or "").strip()
-        if len(libelle) < 2:
-            return refus({"detail": "libelle requis."}, status=422)
-        type_document = payload.get("type_document", "autre")
-        if type_document not in TYPES:
-            return refus({"detail": f"type_document : {', '.join(TYPES)}."},
-                         status=422)
-        champs = {}
+        if "libelle" in payload:
+            libelle = (payload["libelle"] or "").strip()
+            if len(libelle) < 2:
+                return refus({"detail": "libelle requis."}, status=422)
+            doc.libelle = libelle
+        if "type_document" in payload:
+            if payload["type_document"] not in TYPES:
+                return refus({"detail": f"type_document : {', '.join(TYPES)}."},
+                             status=422)
+            doc.type_document = payload["type_document"]
+        if "numero" in payload:
+            doc.numero = (payload["numero"] or "").strip() or None
+        if "note" in payload:
+            doc.note = (payload["note"] or "").strip() or None
         for cle in ("date_emission", "date_expiration"):
-            if payload.get(cle):
-                try:
-                    champs[cle] = date.fromisoformat(payload[cle])
-                except ValueError:
-                    return refus({"detail": f"{cle} invalide."}, status=422)
+            if cle in payload:
+                if payload[cle]:
+                    try:
+                        setattr(doc, cle, date.fromisoformat(payload[cle]))
+                    except (TypeError, ValueError):
+                        return refus({"detail": f"{cle} invalide."}, status=422)
+                else:
+                    setattr(doc, cle, None)
         with transaction.atomic():
-            doc = DocumentFlotte.objects.create(
-                societe_id=sid, **cible, **champs,
-                type_document=type_document, libelle=libelle,
-                numero=(payload.get("numero") or "").strip() or None,
-                note=(payload.get("note") or "").strip() or None,
-                created_by=request.user.id, created_at=services.maintenant())
-            services.enregistrer_audit(request.user.id, "INSERT",
-                                       "document_flotte", doc.id, None,
-                                       {"libelle": libelle,
-                                        "type": type_document})
-        return Response(_doc_dict(doc), status=201)
-    docs = [_doc_dict(d) for d in DocumentFlotte.objects.filter(societe_id=sid)]
-    # tri : échus d'abord, puis par urgence
-    ordre = {"echu": 0, "bientot": 1, "valide": 2, "permanent": 3}
-    docs.sort(key=lambda d: (ordre[d["etat"]["statut"]],
-                             d["etat"]["jours_restants"]
-                             if d["etat"]["jours_restants"] is not None else 99999))
-    alertes = {"echu": sum(1 for d in docs if d["etat"]["statut"] == "echu"),
-               "bientot": sum(1 for d in docs if d["etat"]["statut"] == "bientot")}
-    return Response({"documents": docs, "alertes": alertes})
+            doc.save()
+            services.enregistrer_audit(request.user.id, "UPDATE", "document_flotte",
+                                       doc.id, None, {"libelle": doc.libelle})
+        return Response(_doc_dict(doc))
 
 
-@api_view(["PATCH", "DELETE"])
-def maj_document(request, document_id):
-    doc = DocumentFlotte.objects.filter(id=document_id).first()
-    if not doc:
-        return refus({"detail": "Document introuvable."}, status=404)
-    _acces(request, doc.societe_id)
-    if request.method == "DELETE":
-        with transaction.atomic():
-            services.enregistrer_audit(request.user.id, "DELETE",
-                                       "document_flotte", doc.id,
-                                       {"libelle": doc.libelle}, None)
-            doc.delete()
-        return Response({"ok": True})
-    payload = request.data or {}
-    if "libelle" in payload:
-        libelle = (payload["libelle"] or "").strip()
-        if len(libelle) < 2:
-            return refus({"detail": "libelle requis."}, status=422)
-        doc.libelle = libelle
-    if "type_document" in payload:
-        if payload["type_document"] not in TYPES:
-            return refus({"detail": f"type_document : {', '.join(TYPES)}."},
-                         status=422)
-        doc.type_document = payload["type_document"]
-    if "numero" in payload:
-        doc.numero = (payload["numero"] or "").strip() or None
-    if "note" in payload:
-        doc.note = (payload["note"] or "").strip() or None
-    for cle in ("date_emission", "date_expiration"):
-        if cle in payload:
-            if payload[cle]:
-                try:
-                    setattr(doc, cle, date.fromisoformat(payload[cle]))
-                except (TypeError, ValueError):
-                    return refus({"detail": f"{cle} invalide."}, status=422)
-            else:
-                setattr(doc, cle, None)
-    with transaction.atomic():
-        doc.save()
-        services.enregistrer_audit(request.user.id, "UPDATE", "document_flotte",
-                                   doc.id, None, {"libelle": doc.libelle})
-    return Response(_doc_dict(doc))
+# Anciens points d’entrée conservés pour les intégrations existantes.
+documents = DocumentFlotteViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='document_flotte')
+maj_document = DocumentFlotteViewSet.as_view({'patch': 'partial_update', 'delete': 'destroy'}, http_method_names=['patch', 'delete', 'options'], detail=True, basename='document_flotte')

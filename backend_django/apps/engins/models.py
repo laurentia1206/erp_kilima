@@ -27,7 +27,6 @@ class Engin(models.Model):
         db_table = "engin"
 
 
-
 class PrestationEngin(models.Model):
     """Fiche de service journalière d'un engin (heures prestées).
     Les heures sont stockées en texte "HH:MM" ; les minutes prestées sont
@@ -51,7 +50,6 @@ class PrestationEngin(models.Model):
     class Meta:
         managed = True
         db_table = "prestation_engin"
-
 
 
 class ArretPrestationEngin(models.Model):

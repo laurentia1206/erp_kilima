@@ -1,4 +1,7 @@
 """Files de travail calculées : aucune mutation des documents métier à la lecture."""
+
+from rest_framework.decorators import action
+from core.viewsets import MetierModelViewSet, MetierViewSet
 import hashlib
 import json
 import uuid
@@ -9,7 +12,6 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.db import transaction
 from django.db.models import F, Q, Count, Min
-from rest_framework.decorators import api_view
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
@@ -92,38 +94,77 @@ def regles(sid):
     return result, version
 
 
-@api_view(['GET', 'PUT'])
-@transaction.atomic
-def parametres(request):
-    sid = ident(request.query_params.get('societe_id'))
-    assert_role(assert_acces_societe(request.user, sid), {'DFI'})
-    if request.method == 'PUT':
-        # Sérialise les modifications, y compris sur SQLite, sans changer la société.
-        M.Societe.objects.filter(id=sid).update(nom=F('nom'))
-    old, version = regles(sid)
-    if request.method == 'PUT':
-        p = request.data
-        if not isinstance(p, dict) or p.get('version') != version:
-            return Response({'detail': 'Les délais ont changé. Rouvrez les paramètres avant de les modifier.'}, status=409)
-        values = p.get('regles')
-        if not isinstance(values, dict) or set(values) - set(TYPES):
-            raise ValidationError('Règles de délai invalides.')
-        for code, value in values.items():
-            if value is None:
-                continue
-            if not isinstance(value, dict) or set(value) != {'relance_h', 'escalade_h'}:
-                raise ValidationError('Indiquez les deux délais en heures.')
-            a, b = value['relance_h'], value['escalade_h']
-            if type(a) is not int or type(b) is not int or not 1 <= a < b <= 8760:
-                raise ValidationError('Relance : au moins 1 h ; remontée DFI : après la relance, au plus 8 760 h.')
-        for code, value in values.items():
-            qs = M.Parametre.objects.filter(societe_id=sid, cle=PREFIX + code)
-            qs.delete()
-            if value is not None:
-                M.Parametre.objects.create(societe_id=sid, cle=PREFIX + code, valeur=json.dumps(value), type_valeur='json')
-        services.enregistrer_audit(request.user.id, 'DELAIS_PILOTAGE', 'societe', sid, old, values)
+class PilotageViewSet(MetierViewSet):
+    """Ressource Pilotage ; contrats HTTP et validations métier conservés."""
+
+    @action(detail=False, methods=['get'])
+    def taches(self, request):
+        sid = ident(request.query_params.get('societe_id'))
+        roles = assert_acces_societe(request.user, sid)
+        team = request.query_params.get('portee', 'moi') == 'equipe'
+        if team:
+            assert_role(roles, {'DFI'})
+        if request.query_params.get('portee', 'moi') not in ['moi', 'equipe']:
+            raise ValidationError('Périmètre invalide.')
+        now = datetime.now(timezone.utc)
+        f = FileTravail(sid, now)
+        rows = f.construire()
+        if not team:
+            rows = [r for r in rows if any(x['id'] == str(request.user.id) for x in r['responsables'])]
+        order = {'a_attribuer': 0, 'escalade': 1, 'relance': 2, 'a_traiter': 3}
+        rows.sort(key=lambda r: (order[r['niveau']], -(r['age_heures'] or 0), r['id']))
+        stats = {k: sum(r['niveau'] == k for r in rows) for k in order}
+        stats.update(total=len(rows), dossiers=len({r['document_id'] for r in rows}))
+        result = {'actualise_a': now.isoformat(), 'societe_id': str(sid), 'supervision': 'DFI' in roles,
+                  'portee': 'equipe' if team else 'moi', 'compteurs': stats}
+        if request.query_params.get('resume') != '1':
+            result.update(taches=rows, utilisateurs=list(f.users.values()) if team else [f.users.get(str(request.user.id), {'id': str(request.user.id), 'nom': request.user.nom})])
+        response = Response(result)
+        response['Cache-Control'] = 'private, no-store'
+        return response
+
+
+    @action(detail=False, methods=['get'])
+    def get_delais(self, request):
+        return self._traiter_parametres(request)
+
+
+    @action(detail=False, methods=['put'])
+    def put_delais(self, request):
+        return self._traiter_parametres(request)
+
+
+    @transaction.atomic
+    def _traiter_parametres(self, request):
+        sid = ident(request.query_params.get('societe_id'))
+        assert_role(assert_acces_societe(request.user, sid), {'DFI'})
+        if request.method == 'PUT':
+            # Sérialise les modifications, y compris sur SQLite, sans changer la société.
+            M.Societe.objects.filter(id=sid).update(nom=F('nom'))
         old, version = regles(sid)
-    return Response({'version': version, 'regles': old, 'types': {k: {'module': v[0], 'action': v[1]} for k, v in TYPES.items()}})
+        if request.method == 'PUT':
+            p = request.data
+            if not isinstance(p, dict) or p.get('version') != version:
+                return Response({'detail': 'Les délais ont changé. Rouvrez les paramètres avant de les modifier.'}, status=409)
+            values = p.get('regles')
+            if not isinstance(values, dict) or set(values) - set(TYPES):
+                raise ValidationError('Règles de délai invalides.')
+            for code, value in values.items():
+                if value is None:
+                    continue
+                if not isinstance(value, dict) or set(value) != {'relance_h', 'escalade_h'}:
+                    raise ValidationError('Indiquez les deux délais en heures.')
+                a, b = value['relance_h'], value['escalade_h']
+                if type(a) is not int or type(b) is not int or not 1 <= a < b <= 8760:
+                    raise ValidationError('Relance : au moins 1 h ; remontée DFI : après la relance, au plus 8 760 h.')
+            for code, value in values.items():
+                qs = M.Parametre.objects.filter(societe_id=sid, cle=PREFIX + code)
+                qs.delete()
+                if value is not None:
+                    M.Parametre.objects.create(societe_id=sid, cle=PREFIX + code, valeur=json.dumps(value), type_valeur='json')
+            services.enregistrer_audit(request.user.id, 'DELAIS_PILOTAGE', 'societe', sid, old, values)
+            old, version = regles(sid)
+        return Response({'version': version, 'regles': old, 'types': {k: {'module': v[0], 'action': v[1]} for k, v in TYPES.items()}})
 
 
 class FileTravail:
@@ -346,28 +387,6 @@ class FileTravail:
                     base='Dernière sauvegarde du dossier TVA', detail='Un dossier existe sans référence complète de dépôt. Vérifier le dépôt réel ; aucune échéance fiscale n’est déduite ici.')
 
 
-@api_view(['GET'])
-def taches(request):
-    sid = ident(request.query_params.get('societe_id'))
-    roles = assert_acces_societe(request.user, sid)
-    team = request.query_params.get('portee', 'moi') == 'equipe'
-    if team:
-        assert_role(roles, {'DFI'})
-    if request.query_params.get('portee', 'moi') not in ['moi', 'equipe']:
-        raise ValidationError('Périmètre invalide.')
-    now = datetime.now(timezone.utc)
-    f = FileTravail(sid, now)
-    rows = f.construire()
-    if not team:
-        rows = [r for r in rows if any(x['id'] == str(request.user.id) for x in r['responsables'])]
-    order = {'a_attribuer': 0, 'escalade': 1, 'relance': 2, 'a_traiter': 3}
-    rows.sort(key=lambda r: (order[r['niveau']], -(r['age_heures'] or 0), r['id']))
-    stats = {k: sum(r['niveau'] == k for r in rows) for k in order}
-    stats.update(total=len(rows), dossiers=len({r['document_id'] for r in rows}))
-    result = {'actualise_a': now.isoformat(), 'societe_id': str(sid), 'supervision': 'DFI' in roles,
-              'portee': 'equipe' if team else 'moi', 'compteurs': stats}
-    if request.query_params.get('resume') != '1':
-        result.update(taches=rows, utilisateurs=list(f.users.values()) if team else [f.users.get(str(request.user.id), {'id': str(request.user.id), 'nom': request.user.nom})])
-    response = Response(result)
-    response['Cache-Control'] = 'private, no-store'
-    return response
+# Anciens points d’entrée conservés pour les intégrations existantes.
+parametres = PilotageViewSet.as_view({'get': 'get_delais', 'put': 'put_delais'}, http_method_names=['get', 'put', 'options'], detail=False, basename='pilotage')
+taches = PilotageViewSet.as_view({'get': 'taches'}, http_method_names=['get', 'options'], detail=False, basename='pilotage')

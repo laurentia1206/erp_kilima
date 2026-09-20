@@ -1,7 +1,9 @@
 """Répertoire commun à l'autorisation DFI et à la remise effective des fonds."""
+
+from rest_framework.decorators import action
+from core.viewsets import MetierModelViewSet, MetierViewSet
 from django.db import transaction
 from django.core.exceptions import ValidationError as DjangoValidationError
-from rest_framework.decorators import api_view
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from core.auth import assert_acces_societe, assert_role
@@ -53,25 +55,41 @@ def resoudre(reference,sid):
     return t
 
 
-@api_view(['GET','POST'])
-@transaction.atomic
-def beneficiaires(request):
-    from core.views import _societe_param
-    from apps.commercial.views import _tiers_dict
-    sid=_societe_param(request)
-    roles=assert_acces_societe(request.user,sid)
-    assert_role(roles,ROLES)
-    if request.method=='GET':return Response(repertoire(sid))
-    p=request.data or {}
-    kind=p.get('type')
-    if kind not in ('agent','fournisseur','client') or not str(p.get('code') or '').strip() or len(str(p.get('nom') or '').strip())<2:
-        raise ValidationError('Type, code et nom du bénéficiaire requis.')
-    verrouiller_catalogue(sid)
-    if kind=='agent':
-        for agent in agents_societe(sid):
-            if normaliser(agent_nom(agent))==normaliser(p['nom']):
-                raise DoublonCatalogue({'detail':'Un agent existant porte ce nom. Sélectionnez cet agent dans le répertoire.', 'existing_id':'agent:'+str(agent.id),'can_confirm_similar':False})
-    verifier_doublon(tiers_visibles(sid),p,'nom')
-    t=Tiers.objects.create(societe_id=sid,type=kind,code=p['code'].strip().upper(),nom=p['nom'].strip(),intra_groupe=bool(p.get('intra_groupe',False)))
-    services.enregistrer_audit(request.user.id,'INSERT','tiers',t.id,None,{'nom':t.nom,'type':kind,'origine':'beneficiaire'})
-    return Response(_tiers_dict(t),status=201)
+class BeneficiaireViewSet(MetierViewSet):
+    """Ressource Beneficiaire ; contrats HTTP et validations métier conservés."""
+
+    @action(detail=False, methods=['get'])
+    def get_beneficiaires(self, request):
+        return self._traiter_beneficiaires(request)
+
+
+    @action(detail=False, methods=['post'])
+    def post_beneficiaires(self, request):
+        return self._traiter_beneficiaires(request)
+
+
+    @transaction.atomic
+    def _traiter_beneficiaires(self, request):
+        from core.views import _societe_param
+        from apps.commercial.views import _tiers_dict
+        sid=_societe_param(request)
+        roles=assert_acces_societe(request.user,sid)
+        assert_role(roles,ROLES)
+        if request.method=='GET':return Response(repertoire(sid))
+        p=request.data or {}
+        kind=p.get('type')
+        if kind not in ('agent','fournisseur','client') or not str(p.get('code') or '').strip() or len(str(p.get('nom') or '').strip())<2:
+            raise ValidationError('Type, code et nom du bénéficiaire requis.')
+        verrouiller_catalogue(sid)
+        if kind=='agent':
+            for agent in agents_societe(sid):
+                if normaliser(agent_nom(agent))==normaliser(p['nom']):
+                    raise DoublonCatalogue({'detail':'Un agent existant porte ce nom. Sélectionnez cet agent dans le répertoire.', 'existing_id':'agent:'+str(agent.id),'can_confirm_similar':False})
+        verifier_doublon(tiers_visibles(sid),p,'nom')
+        t=Tiers.objects.create(societe_id=sid,type=kind,code=p['code'].strip().upper(),nom=p['nom'].strip(),intra_groupe=bool(p.get('intra_groupe',False)))
+        services.enregistrer_audit(request.user.id,'INSERT','tiers',t.id,None,{'nom':t.nom,'type':kind,'origine':'beneficiaire'})
+        return Response(_tiers_dict(t),status=201)
+
+
+# Anciens points d’entrée conservés pour les intégrations existantes.
+beneficiaires = BeneficiaireViewSet.as_view({'get': 'get_beneficiaires', 'post': 'post_beneficiaires'}, http_method_names=['get', 'post', 'options'], detail=False, basename='beneficiaire')

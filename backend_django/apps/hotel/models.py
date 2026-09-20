@@ -24,7 +24,6 @@ class Chambre(models.Model):
         db_table = "chambre"
 
 
-
 class Sejour(models.Model):
     """Réservation puis séjour : reservee -> arrivee -> terminee
     (ou annulee / no_show). Intervalle [arrivee, depart) : le jour du
@@ -53,7 +52,6 @@ class Sejour(models.Model):
         db_table = "sejour"
 
 
-
 class LigneSejour(models.Model):
     """Ligne du folio (la note du séjour) : extra facturé au check-out
     (blanchisserie, divers…) ou ticket POS envoyé « sur la chambre »
@@ -76,7 +74,6 @@ class LigneSejour(models.Model):
         db_table = "ligne_sejour"
 
 
-
 class FicheTechnique(models.Model):
     """Recette d'un plat (article vendu au POS, généralement sans stock) :
     la liste des ingrédients consommés par portion. Base du food cost."""
@@ -94,7 +91,6 @@ class FicheTechnique(models.Model):
         db_table = "fiche_technique"
 
 
-
 class LigneFicheTechnique(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     fiche_id = models.UUIDField()
@@ -104,7 +100,6 @@ class LigneFicheTechnique(models.Model):
     class Meta:
         managed = True
         db_table = "ligne_fiche_technique"
-
 
 
 class ConsommationCuisine(models.Model):
@@ -126,7 +121,6 @@ class ConsommationCuisine(models.Model):
     class Meta:
         managed = True
         db_table = "consommation_cuisine"
-
 
 
 class LigneConsommationCuisine(models.Model):

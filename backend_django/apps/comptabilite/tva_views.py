@@ -1,4 +1,9 @@
 """Préparation mensuelle TVA à partir des écritures ; aucune déclaration déposée."""
+
+from rest_framework.decorators import action
+from core.viewsets import MetierModelViewSet, MetierViewSet
+from apps.comptabilite.models import PreparationTVA
+from apps.comptabilite.serializers import PreparationTVASerializer
 import calendar
 import re
 from datetime import date
@@ -6,7 +11,6 @@ from decimal import Decimal
 from django.db.models import Q
 from django.db import transaction
 from django.db.models import F
-from rest_framework.decorators import api_view
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from core.auth import assert_acces_societe, assert_role
@@ -26,14 +30,6 @@ def periode_mensuelle(value):
         return date(an, mois, 1), date(an, mois, calendar.monthrange(an, mois)[1])
     except ValueError:
         raise ValidationError('Mois invalide.')
-
-
-@api_view(['GET'])
-def preparation(request):
-    sid = _societe_param(request)
-    assert_role(assert_acces_societe(request.user, sid), {'DFI', 'COMPTABLE'})
-    mois = request.query_params.get('mois', date.today().strftime('%Y-%m'))
-    return Response(rapport_tva(sid, mois))
 
 
 def rapport_tva(sid, mois):
@@ -86,47 +82,73 @@ def rapport_tva(sid, mois):
         'note': 'État préparatoire en USD. Le solde des mouvements comptables ne constitue pas le montant fiscal à payer. Vérifier les justificatifs, la déductibilité, les régularisations, le crédit antérieur et la conversion dans la devise déclarative avant dépôt.'}
 
 
-@api_view(['GET', 'POST'])
-@transaction.atomic
-def dossier(request):
-    sid = _societe_param(request)
-    assert_role(assert_acces_societe(request.user, sid), {'DFI', 'COMPTABLE'})
-    mois = request.query_params.get('mois', date.today().strftime('%Y-%m'))
-    periode_mensuelle(mois)
-    if request.method == 'POST':
-        Societe.objects.filter(id=sid).update(nom=F('nom'))
-    p = PreparationTVA.objects.filter(societe_id=sid, mois=mois).first()
-    if request.method == 'POST':
-        data = request.data or {}
-        if data.get('revision', 0) != (p.revision if p else 0):
-            return Response({'detail': 'Ce dossier a été modifié par un autre utilisateur. Rechargez-le avant d’enregistrer.'}, status=409)
-        notes = str(data.get('notes') or '').strip()
-        if len(notes) > 10000: raise ValidationError('Notes trop longues.')
-        suivi = {}
-        for key in ['credit_anterieur_cdf', 'montant_declare_cdf']:
-            raw = data.get(key)
-            if raw in (None, ''): suivi[key] = ''; continue
-            try:
-                val = Decimal(str(raw))
-                if not val.is_finite() or val < 0: raise ValueError
-                suivi[key] = str(val.quantize(Decimal('0.01')))
-            except Exception: raise ValidationError('Montant CDF invalide.')
-        suivi['reference_depot'] = str(data.get('reference_depot') or '').strip()[:120]
-        suivi['date_depot'] = str(data.get('date_depot') or '').strip()
-        if bool(suivi['reference_depot']) != bool(suivi['date_depot']):
-            raise ValidationError('Renseignez ensemble la référence et la date du dépôt déjà effectué.')
-        if suivi['date_depot']:
-            try:
-                jour = date.fromisoformat(suivi['date_depot'])
-                if jour > date.today(): raise ValueError
-            except ValueError: raise ValidationError('Date de dépôt invalide ou future.')
-        snapshot = rapport_tva(sid, mois)
-        donnees = {**suivi, 'notes': notes, 'etat': snapshot}
-        if p:
-            p.donnees = donnees; p.revision += 1
-        else: p = PreparationTVA(societe_id=sid, mois=mois, donnees=donnees)
-        p.updated_by = request.user.id; p.updated_at = services.maintenant(); p.save()
-        services.enregistrer_audit(request.user.id, 'PREPARE_TVA', 'preparation_tva', p.id, None,
-            {'mois': mois, 'revision': p.revision, 'reference_depot': suivi['reference_depot']})
-    return Response({'revision': p.revision if p else 0, 'donnees': p.donnees if p else {},
-        'updated_at': p.updated_at.isoformat() if p and p.updated_at else None})
+class PreparationTVAViewSet(MetierModelViewSet):
+    """Ressource PreparationTVA ; contrats HTTP et validations métier conservés."""
+    queryset = PreparationTVA.objects.none()
+    serializer_class = PreparationTVASerializer
+
+    def list(self, request):
+        sid = _societe_param(request)
+        assert_role(assert_acces_societe(request.user, sid), {'DFI', 'COMPTABLE'})
+        mois = request.query_params.get('mois', date.today().strftime('%Y-%m'))
+        return Response(rapport_tva(sid, mois))
+
+
+    @action(detail=False, methods=['get'])
+    def get_dossier(self, request):
+        return self._traiter_dossier(request)
+
+
+    @action(detail=False, methods=['post'])
+    def post_dossier(self, request):
+        return self._traiter_dossier(request)
+
+
+    @transaction.atomic
+    def _traiter_dossier(self, request):
+        sid = _societe_param(request)
+        assert_role(assert_acces_societe(request.user, sid), {'DFI', 'COMPTABLE'})
+        mois = request.query_params.get('mois', date.today().strftime('%Y-%m'))
+        periode_mensuelle(mois)
+        if request.method == 'POST':
+            Societe.objects.filter(id=sid).update(nom=F('nom'))
+        p = PreparationTVA.objects.filter(societe_id=sid, mois=mois).first()
+        if request.method == 'POST':
+            data = request.data or {}
+            if data.get('revision', 0) != (p.revision if p else 0):
+                return Response({'detail': 'Ce dossier a été modifié par un autre utilisateur. Rechargez-le avant d’enregistrer.'}, status=409)
+            notes = str(data.get('notes') or '').strip()
+            if len(notes) > 10000: raise ValidationError('Notes trop longues.')
+            suivi = {}
+            for key in ['credit_anterieur_cdf', 'montant_declare_cdf']:
+                raw = data.get(key)
+                if raw in (None, ''): suivi[key] = ''; continue
+                try:
+                    val = Decimal(str(raw))
+                    if not val.is_finite() or val < 0: raise ValueError
+                    suivi[key] = str(val.quantize(Decimal('0.01')))
+                except Exception: raise ValidationError('Montant CDF invalide.')
+            suivi['reference_depot'] = str(data.get('reference_depot') or '').strip()[:120]
+            suivi['date_depot'] = str(data.get('date_depot') or '').strip()
+            if bool(suivi['reference_depot']) != bool(suivi['date_depot']):
+                raise ValidationError('Renseignez ensemble la référence et la date du dépôt déjà effectué.')
+            if suivi['date_depot']:
+                try:
+                    jour = date.fromisoformat(suivi['date_depot'])
+                    if jour > date.today(): raise ValueError
+                except ValueError: raise ValidationError('Date de dépôt invalide ou future.')
+            snapshot = rapport_tva(sid, mois)
+            donnees = {**suivi, 'notes': notes, 'etat': snapshot}
+            if p:
+                p.donnees = donnees; p.revision += 1
+            else: p = PreparationTVA(societe_id=sid, mois=mois, donnees=donnees)
+            p.updated_by = request.user.id; p.updated_at = services.maintenant(); p.save()
+            services.enregistrer_audit(request.user.id, 'PREPARE_TVA', 'preparation_tva', p.id, None,
+                {'mois': mois, 'revision': p.revision, 'reference_depot': suivi['reference_depot']})
+        return Response({'revision': p.revision if p else 0, 'donnees': p.donnees if p else {},
+            'updated_at': p.updated_at.isoformat() if p and p.updated_at else None})
+
+
+# Anciens points d’entrée conservés pour les intégrations existantes.
+preparation = PreparationTVAViewSet.as_view({'get': 'list'}, http_method_names=['get', 'options'], detail=False, basename='preparation_t_v_a')
+dossier = PreparationTVAViewSet.as_view({'get': 'get_dossier', 'post': 'post_dossier'}, http_method_names=['get', 'post', 'options'], detail=False, basename='preparation_t_v_a')

@@ -7,13 +7,19 @@ d'articles, n° producteur, facturation conditionnée à la réception acheteur)
 """
 from __future__ import annotations
 
+from rest_framework.decorators import action
+from core.viewsets import MetierModelViewSet, MetierViewSet
+from apps.commercial.models import Devis
+from apps.commercial.serializers import DevisSerializer
+from apps.commercial.models import Facture
+from apps.commercial.serializers import FactureSerializer
+
 from apps.stocks.catalogue import tiers_disponible
 
 from datetime import date
 
 from django.db import transaction
 from django.db.models import Sum
-from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from apps.comptabilite import services as comptabilite
@@ -199,93 +205,6 @@ def _calculer_lignes(d: Devis, societe_id, lignes_in: list[dict]):
 
 
 # ── Devis : CRUD & workflow ──────────────────────────────────────────
-@api_view(["GET", "POST"])
-def devis(request):
-    sid = _societe_param(request)
-    roles = assert_acces_societe(request.user, sid)
-    assert_role(roles, ROLES)
-    if request.method == "POST":
-        payload = request.data or {}
-        societe = Societe.objects.filter(id=sid).first()
-        tiers = Tiers.objects.filter(id=payload.get("tiers_id")).first()
-        if not tiers_disponible(tiers, sid) or tiers.type != "client":
-            return refus({"detail": "Sélectionnez un client."}, status=400)
-        if not payload.get("lignes"):
-            return refus({"detail": "Au moins une ligne."}, status=400)
-        with transaction.atomic():
-            jour = date.fromisoformat(payload["date_devis"]) \
-                if payload.get("date_devis") else date.today()
-            d = Devis.objects.create(
-                societe_id=sid,
-                numero=services.next_numero("devis", jour.year, societe.code, societe.id),
-                tiers_id=tiers.id, date_devis=jour,
-                validite=date.fromisoformat(payload["validite"])
-                if payload.get("validite") else None,
-                remise_globale_pct=payload.get("remise_globale_pct", 0),
-                conditions=(payload.get("conditions") or "").strip() or None,
-                note=(payload.get("note") or "").strip() or None,
-                created_by=request.user.id, created_at=services.maintenant())
-            err = _calculer_lignes(d, sid, payload["lignes"])
-            if err is not None:
-                return err
-            d.save()
-            services.enregistrer_audit(request.user.id, "INSERT", "devis", d.id, None,
-                                       {"numero": d.numero, "ttc": float(d.total_ttc)})
-        return Response(_devis_dict(d), status=201)
-    q = Devis.objects.filter(societe_id=sid)
-    statut = request.query_params.get("statut")
-    if statut:
-        q = q.filter(statut=statut)
-    return Response([_devis_dict(d, detail=False) for d in q.order_by("-created_at")])
-
-
-@api_view(["GET", "PUT"])
-def devis_detail(request, devis_id):
-    d = _devis_ou_404(request, devis_id)
-    if not d:
-        return refus({"detail": "Devis introuvable."}, status=404)
-    if request.method == "PUT":
-        payload = request.data or {}
-        if d.statut not in ("brouillon", "envoye"):
-            return refus({"detail": "Seul un devis brouillon ou envoyé peut être "
-                                    "modifié — la commande est confirmée."}, status=409)
-        tiers = Tiers.objects.filter(id=payload.get("tiers_id")).first()
-        if not tiers_disponible(tiers, d.societe_id) or tiers.type != "client":
-            return refus({"detail": "Sélectionnez un client."}, status=400)
-        if not payload.get("lignes"):
-            return refus({"detail": "Au moins une ligne."}, status=400)
-        with transaction.atomic():
-            d.tiers_id = tiers.id
-            if payload.get("date_devis"):
-                d.date_devis = date.fromisoformat(payload["date_devis"])
-            d.validite = date.fromisoformat(payload["validite"]) \
-                if payload.get("validite") else None
-            d.remise_globale_pct = payload.get("remise_globale_pct", 0)
-            d.conditions = (payload.get("conditions") or "").strip() or None
-            d.note = (payload.get("note") or "").strip() or None
-            err = _calculer_lignes(d, d.societe_id, payload["lignes"])
-            if err is not None:
-                return err
-            d.save()
-            services.enregistrer_audit(request.user.id, "UPDATE", "devis", d.id, None,
-                                       {"numero": d.numero, "ttc": float(d.total_ttc)})
-        return Response(_devis_dict(d))
-    return Response(_devis_dict(d))
-
-
-@api_view(["POST"])
-def envoyer_devis(request, devis_id):
-    d = _devis_ou_404(request, devis_id)
-    if not d:
-        return refus({"detail": "Devis introuvable."}, status=404)
-    if d.statut != "brouillon":
-        return refus({"detail": "Seul un brouillon peut être marqué « envoyé »."},
-                     status=409)
-    d.statut = "envoye"
-    d.save(update_fields=["statut"])
-    services.enregistrer_audit(request.user.id, "ENVOI", "devis", d.id, None,
-                               {"numero": d.numero})
-    return Response(_devis_dict(d))
 
 
 def _associer_ligne(d: Devis, a: dict, user_id):
@@ -321,410 +240,544 @@ def _associer_ligne(d: Devis, a: dict, user_id):
     return None
 
 
-@api_view(["POST"])
-def confirmer_devis(request, devis_id):
-    """Prise en charge : le devis devient la commande client (+ n° producteur)."""
-    d = _devis_ou_404(request, devis_id)
-    if not d:
-        return refus({"detail": "Devis introuvable."}, status=404)
-    if d.statut not in ("brouillon", "envoye"):
-        return refus({"detail": "Devis déjà confirmé ou annulé."}, status=409)
-    payload = request.data or {}
-    with transaction.atomic():
-        d.statut = "confirme"
-        d.date_confirmation = services.maintenant()
-        for a in payload.get("associations") or []:
-            err = _associer_ligne(d, a, request.user.id)
-            if err is not None:
-                return err
-        if payload.get("reference_producteur") is not None:
-            ref = payload["reference_producteur"].strip() or None
-            d.reference_producteur = ref
-            if ref and d.commande_origine_id:
-                cmd = Commande.objects.filter(id=d.commande_origine_id).first()
-                if cmd:
-                    cmd.reference_fournisseur = ref
-                    cmd.save(update_fields=["reference_fournisseur"])
-        d.save()
-        services.enregistrer_audit(request.user.id, "CONFIRMATION", "devis", d.id, None,
-                                   {"numero": d.numero,
-                                    "ref_producteur": d.reference_producteur})
-    return Response(_devis_dict(d))
-
-
-@api_view(["POST"])
-def associer_articles(request, devis_id):
-    d = _devis_ou_404(request, devis_id)
-    if not d:
-        return refus({"detail": "Devis introuvable."}, status=404)
-    with transaction.atomic():
-        err = _associer_ligne(d, request.data or {}, request.user.id)
-        if err is not None:
-            return err
-    return Response(_devis_dict(d))
-
-
-@api_view(["POST"])
-def maj_reference_producteur(request, devis_id):
-    d = _devis_ou_404(request, devis_id)
-    if not d:
-        return refus({"detail": "Devis introuvable."}, status=404)
-    payload = request.data or {}
-    if not payload.get("reference_producteur"):
-        return refus({"detail": "reference_producteur requis."}, status=422)
-    ref = payload["reference_producteur"].strip() or None
-    d.reference_producteur = ref
-    d.save(update_fields=["reference_producteur"])
-    if ref and d.commande_origine_id:
-        cmd = Commande.objects.filter(id=d.commande_origine_id).first()
-        if cmd:
-            cmd.reference_fournisseur = ref
-            cmd.save(update_fields=["reference_fournisseur"])
-    return Response(_devis_dict(d))
-
-
-@api_view(["POST"])
-def annuler_devis(request, devis_id):
-    d = _devis_ou_404(request, devis_id)
-    if not d:
-        return refus({"detail": "Devis introuvable."}, status=404)
-    lignes = LigneDevis.objects.filter(devis_id=d.id)
-    if any(float(l.qte_livree) > 0 or float(l.qte_facturee) > 0 for l in lignes):
-        return refus({"detail": "Impossible d'annuler : des livraisons ou factures "
-                                "existent déjà."}, status=409)
-    if d.statut == "annule":
-        return refus({"detail": "Déjà annulé."}, status=409)
-    d.statut = "annule"
-    d.save(update_fields=["statut"])
-    # PO du groupe : l'annulation du vendeur annule aussi les demandes de
-    # course encore en attente chez le transporteur
-    if d.commande_origine_id:
-        Course.objects.filter(commande_origine_id=d.commande_origine_id,
-                              statut="demande").update(statut="annulee")
-    services.enregistrer_audit(request.user.id, "ANNULATION", "devis", d.id, None,
-                               {"numero": d.numero})
-    return Response(_devis_dict(d))
-
-
 # ── Livraison (BL) — sortie de stock au CUMP ─────────────────────────
-@api_view(["POST"])
-def livrer(request, devis_id):
-    d = _devis_ou_404(request, devis_id)
-    if not d:
-        return refus({"detail": "Devis introuvable."}, status=404)
-    if d.statut != "confirme":
-        return refus({"detail": "Confirmez la commande avant de livrer."}, status=409)
-    payload = request.data or {}
-    if not payload.get("lignes"):
-        return refus({"detail": "Aucune quantité à livrer."}, status=400)
-    # PO avec transporteur du groupe : chaque étape attend son tour — pas de
-    # chargement tant que la fiche de course n'est pas prise en charge ET validée
-    if d.commande_origine_id:
-        cmd_po = Commande.objects.filter(id=d.commande_origine_id).first()
-        if cmd_po and cmd_po.transporteur_societe_id:
-            transporteur = Societe.objects.filter(
-                id=cmd_po.transporteur_societe_id).first()
-            crs = intersociete_lib.course_active(cmd_po.id)
-            if not crs or crs.statut in ("demande", "brouillon", "annulee"):
-                return refus({"detail": f"Chargement bloqué : la fiche de course n'est "
-                                        f"pas encore prête — on attend "
-                                        f"{transporteur.nom if transporteur else 'le transporteur'} "
-                                        f"(prise en charge puis validation de la "
-                                        f"fiche)."}, status=409)
-    societe = Societe.objects.filter(id=d.societe_id).first()
-    jour = date.today()
-    with transaction.atomic():
-        numero = services.next_numero("livraison", jour.year, societe.code, societe.id)
-        bl = Livraison.objects.create(
-            societe_id=d.societe_id, devis_id=d.id, numero=numero, date_livraison=jour,
-            note=(payload.get("note") or "").strip() or None,
-            created_by=request.user.id, created_at=services.maintenant())
-
-        lignes_par_id = {str(l.id): l for l in LigneDevis.objects.filter(devis_id=d.id)}
-        po = bool(d.commande_origine_id)
-        stock_par_compte: dict[str, float] = {}
-        for rl in payload["lignes"]:
-            orig = lignes_par_id.get(str(rl.get("ligne_id")))
-            if not orig:
-                return refus({"detail": "Ligne étrangère à la commande."}, status=400)
-            art = Article.objects.filter(id=orig.article_id).first() \
-                if orig.article_id else None
-            gere = bool(art and art.gere_stock)
-            if po and not art:
-                return refus({"detail": f"« {orig.designation} » : associez d'abord "
-                                        f"cette ligne à un article de votre stock "
-                                        f"(bouton « Associer les articles » de la "
-                                        f"commande)."}, status=409)
-            if not gere and not po:
-                return refus({"detail": f"« {orig.designation} » n'est pas un article "
-                                        f"en stock — rien à livrer."}, status=400)
-            qte = float(rl.get("qte", 0))
-            if qte <= 0:
-                return refus({"detail": "Quantité invalide."}, status=422)
-            restant = round(float(orig.qte) - float(orig.qte_livree), 3)
-            if qte > restant + 1e-6:
-                return refus({"detail": f"{qte} demandé mais {restant} restant à livrer "
-                                        f"sur « {orig.designation} »."}, status=409)
-            cump = val = 0.0
-            if gere:
-                from apps.stocks import services as stock_lib
-                central = stock_lib.depot_central(d.societe_id)
-                dispo = stock_lib.qte_disponible(central.id, art.id)
-                if dispo < qte - 1e-6:
-                    return refus({"detail": f"Stock insuffisant pour {art.code} "
-                                            f"au dépôt central : {dispo} "
-                                            f"disponible, {qte} à livrer."},
-                                 status=409)
-                cump = stock_lib.cump_depot(central.id, art)
-                val = stock_lib.sortie(art, central, qte, "livraison", numero,
-                                       jour=jour)
-                stock_par_compte[art.compte_stock] = round(
-                    stock_par_compte.get(art.compte_stock, 0.0) + val, 2)
-            orig.qte_livree = round(float(orig.qte_livree) + qte, 3)
-            orig.save(update_fields=["qte_livree"])
-            LigneLivraison.objects.create(
-                livraison_id=bl.id, ligne_devis_id=orig.id,
-                article_id=art.id if art else None, designation=orig.designation,
-                qte=qte, cout_unitaire=round(cump, 4), valeur=val)
-
-        if stock_par_compte:
-            # Sortie de stock EN ATTENTE du comptable (revue des pièces)
-            comptabilite.comptabiliser_stock_sortie(
-                d.societe_id, stock_par_compte, numero, jour, "livraison", bl.id,
-                request.user.id,
-                statut="en_attente" if po
-                else intersociete_lib._statut_piece(d.societe_id, "vente"))
-        services.enregistrer_audit(request.user.id, "INSERT", "livraison", bl.id, None,
-                                   {"numero": numero, "devis": d.numero})
-    return Response(_devis_dict(d), status=201)
 
 
 # ── Facturation des quantités livrées ────────────────────────────────
-@api_view(["POST"])
-def facturer(request, devis_id):
-    """Facture les quantités livrées non encore facturées (+ lignes libres)."""
-    d = _devis_ou_404(request, devis_id)
-    if not d:
-        return refus({"detail": "Devis introuvable."}, status=404)
-    if d.statut != "confirme":
-        return refus({"detail": "Confirmez la commande avant de facturer."}, status=409)
-    payload = request.data or {}
-    # PO intersociété : facturation conditionnée à la réception de l'acheteur
-    if d.commande_origine_id:
-        cmd_po = Commande.objects.filter(id=d.commande_origine_id).first()
-        if cmd_po:
-            r = intersociete_lib.reception_po_resume(cmd_po)
-            if r["totaux"]["livre"] > 0 and not r["complete"]:
-                return refus({"detail": "Facturation bloquée : l'acheteur n'a pas encore "
-                                        "réceptionné toute la marchandise chargée (règle "
-                                        "du groupe — la facture suit la réception)."},
-                             status=409)
-    societe = Societe.objects.filter(id=d.societe_id).first()
-    jour = date.today()
-    po = bool(d.commande_origine_id)
-    a_facturer = []
-    for l in LigneDevis.objects.filter(devis_id=d.id).order_by("ordre"):
-        art = Article.objects.filter(id=l.article_id).first() if l.article_id else None
-        qf = _facturable(l, art, po)
-        if qf > 0:
-            a_facturer.append((l, art, qf))
-    if not a_facturer:
-        return refus({"detail": "Rien à facturer — livrez d'abord (ou tout est déjà "
-                                "facturé)."}, status=409)
+class DevisViewSet(MetierModelViewSet):
+    """Ressource Devis ; contrats HTTP et validations métier conservés."""
+    queryset = Devis.objects.none()
+    serializer_class = DevisSerializer
+    lookup_url_kwarg = 'devis_id'
 
-    with transaction.atomic():
-        numero = services.next_numero("facture_vente", jour.year, societe.code,
-                                      societe.id)
-        statut_piece = "en_attente" if po \
-            else intersociete_lib._statut_piece(d.societe_id, "vente")
-        fac = Facture.objects.create(
-            societe_id=d.societe_id, type="vente", numero=numero, tiers_id=d.tiers_id,
-            date_facture=jour,
-            echeance=date.fromisoformat(payload["echeance"])
-            if payload.get("echeance") else None,
-            reference=d.reference_producteur,
-            statut="validee" if statut_piece == "valide" else "en_attente",
-            devis_id=d.id, created_by=request.user.id, created_at=services.maintenant())
+    def list(self, request):
+        return self._traiter_devis(request)
 
-        total_ht = total_tva = cout_total = 0.0
-        lm_list = []
-        for l, art, qf in a_facturer:
-            ht = round(float(l.montant_ht) * qf / float(l.qte), 2)
-            tva = round(float(l.montant_tva) * qf / float(l.qte), 2)
-            total_ht += ht
-            total_tva += tva
-            agg = LigneLivraison.objects.filter(ligne_devis_id=l.id).aggregate(
-                v=Sum("valeur"), q=Sum("qte"))
-            cump_moy = float(agg["v"] or 0) / float(agg["q"]) if float(agg["q"] or 0) \
-                else 0.0
-            cout = round(qf * cump_moy, 2)
-            cout_total += cout
-            lm = LigneFacture.objects.create(
-                facture_id=fac.id, article_id=l.article_id, designation=l.designation,
-                qte=qf, prix_unitaire=float(l.prix_unitaire),
-                remise_pct=float(l.remise_pct or 0), taux_tva=float(l.taux_tva),
-                montant_ht=ht, montant_tva=tva)
-            lm_list.append(lm)
-            l.qte_facturee = round(float(l.qte_facturee) + qf, 3)
-            l.save(update_fields=["qte_facturee"])
 
-        fac.total_ht = round(total_ht, 2)
-        fac.total_tva = round(total_tva, 2)
-        fac.total_ttc = round(total_ht + total_tva, 2)
-        fac.cout_ventes = round(cout_total, 2)
-        fac.marge = round(fac.total_ht - cout_total, 2)
-        ecr = comptabilite.comptabiliser_facture(fac, lm_list, request.user.id,
-                                                 statut=statut_piece)
-        fac.ecriture_id = ecr.id
-        fac.save()
-        # Intersociété : client du groupe → facture d'achat miroir
-        intersociete_lib.creer_facture_miroir(fac, request.user.id)
-        # PO d'origine : tout facturé → commande soldée chez l'acheteur
-        if d.commande_origine_id and all(
-                _facturable(l, Article.objects.filter(id=l.article_id).first()
-                            if l.article_id else None, po=True) <= 0
-                for l in LigneDevis.objects.filter(devis_id=d.id)):
-            cmd_origine = Commande.objects.filter(id=d.commande_origine_id).first()
-            if cmd_origine:
-                cmd_origine.statut = "soldee"
-                cmd_origine.save(update_fields=["statut"])
-        services.enregistrer_audit(request.user.id, "INSERT", "facture", fac.id, None,
-                                   {"numero": numero, "devis": d.numero,
-                                    "ttc": float(fac.total_ttc)})
-    return Response({"facture": {"id": str(fac.id), "numero": numero,
-                                 "total_ttc": float(fac.total_ttc)},
-                     "devis": _devis_dict(d)}, status=201)
+    def create(self, request):
+        return self._traiter_devis(request)
+
+
+    def _traiter_devis(self, request):
+        sid = _societe_param(request)
+        roles = assert_acces_societe(request.user, sid)
+        assert_role(roles, ROLES)
+        if request.method == "POST":
+            payload = request.data or {}
+            societe = Societe.objects.filter(id=sid).first()
+            tiers = Tiers.objects.filter(id=payload.get("tiers_id")).first()
+            if not tiers_disponible(tiers, sid) or tiers.type != "client":
+                return refus({"detail": "Sélectionnez un client."}, status=400)
+            if not payload.get("lignes"):
+                return refus({"detail": "Au moins une ligne."}, status=400)
+            with transaction.atomic():
+                jour = date.fromisoformat(payload["date_devis"]) \
+                    if payload.get("date_devis") else date.today()
+                d = Devis.objects.create(
+                    societe_id=sid,
+                    numero=services.next_numero("devis", jour.year, societe.code, societe.id),
+                    tiers_id=tiers.id, date_devis=jour,
+                    validite=date.fromisoformat(payload["validite"])
+                    if payload.get("validite") else None,
+                    remise_globale_pct=payload.get("remise_globale_pct", 0),
+                    conditions=(payload.get("conditions") or "").strip() or None,
+                    note=(payload.get("note") or "").strip() or None,
+                    created_by=request.user.id, created_at=services.maintenant())
+                err = _calculer_lignes(d, sid, payload["lignes"])
+                if err is not None:
+                    return err
+                d.save()
+                services.enregistrer_audit(request.user.id, "INSERT", "devis", d.id, None,
+                                           {"numero": d.numero, "ttc": float(d.total_ttc)})
+            return Response(_devis_dict(d), status=201)
+        q = Devis.objects.filter(societe_id=sid)
+        statut = request.query_params.get("statut")
+        if statut:
+            q = q.filter(statut=statut)
+        return Response([_devis_dict(d, detail=False) for d in q.order_by("-created_at")])
+
+
+    def retrieve(self, request, devis_id):
+        return self._traiter_devis_detail(request, devis_id)
+
+
+    def update(self, request, devis_id):
+        return self._traiter_devis_detail(request, devis_id)
+
+
+    def _traiter_devis_detail(self, request, devis_id):
+        d = _devis_ou_404(request, devis_id)
+        if not d:
+            return refus({"detail": "Devis introuvable."}, status=404)
+        if request.method == "PUT":
+            payload = request.data or {}
+            if d.statut not in ("brouillon", "envoye"):
+                return refus({"detail": "Seul un devis brouillon ou envoyé peut être "
+                                        "modifié — la commande est confirmée."}, status=409)
+            tiers = Tiers.objects.filter(id=payload.get("tiers_id")).first()
+            if not tiers_disponible(tiers, d.societe_id) or tiers.type != "client":
+                return refus({"detail": "Sélectionnez un client."}, status=400)
+            if not payload.get("lignes"):
+                return refus({"detail": "Au moins une ligne."}, status=400)
+            with transaction.atomic():
+                d.tiers_id = tiers.id
+                if payload.get("date_devis"):
+                    d.date_devis = date.fromisoformat(payload["date_devis"])
+                d.validite = date.fromisoformat(payload["validite"]) \
+                    if payload.get("validite") else None
+                d.remise_globale_pct = payload.get("remise_globale_pct", 0)
+                d.conditions = (payload.get("conditions") or "").strip() or None
+                d.note = (payload.get("note") or "").strip() or None
+                err = _calculer_lignes(d, d.societe_id, payload["lignes"])
+                if err is not None:
+                    return err
+                d.save()
+                services.enregistrer_audit(request.user.id, "UPDATE", "devis", d.id, None,
+                                           {"numero": d.numero, "ttc": float(d.total_ttc)})
+            return Response(_devis_dict(d))
+        return Response(_devis_dict(d))
+
+
+    @action(detail=True, methods=['post'])
+    def envoyer(self, request, devis_id):
+        d = _devis_ou_404(request, devis_id)
+        if not d:
+            return refus({"detail": "Devis introuvable."}, status=404)
+        if d.statut != "brouillon":
+            return refus({"detail": "Seul un brouillon peut être marqué « envoyé »."},
+                         status=409)
+        d.statut = "envoye"
+        d.save(update_fields=["statut"])
+        services.enregistrer_audit(request.user.id, "ENVOI", "devis", d.id, None,
+                                   {"numero": d.numero})
+        return Response(_devis_dict(d))
+
+
+    @action(detail=True, methods=['post'])
+    def confirmer(self, request, devis_id):
+        """Prise en charge : le devis devient la commande client (+ n° producteur)."""
+        d = _devis_ou_404(request, devis_id)
+        if not d:
+            return refus({"detail": "Devis introuvable."}, status=404)
+        if d.statut not in ("brouillon", "envoye"):
+            return refus({"detail": "Devis déjà confirmé ou annulé."}, status=409)
+        payload = request.data or {}
+        with transaction.atomic():
+            d.statut = "confirme"
+            d.date_confirmation = services.maintenant()
+            for a in payload.get("associations") or []:
+                err = _associer_ligne(d, a, request.user.id)
+                if err is not None:
+                    return err
+            if payload.get("reference_producteur") is not None:
+                ref = payload["reference_producteur"].strip() or None
+                d.reference_producteur = ref
+                if ref and d.commande_origine_id:
+                    cmd = Commande.objects.filter(id=d.commande_origine_id).first()
+                    if cmd:
+                        cmd.reference_fournisseur = ref
+                        cmd.save(update_fields=["reference_fournisseur"])
+            d.save()
+            services.enregistrer_audit(request.user.id, "CONFIRMATION", "devis", d.id, None,
+                                       {"numero": d.numero,
+                                        "ref_producteur": d.reference_producteur})
+        return Response(_devis_dict(d))
+
+
+    @action(detail=True, methods=['post'])
+    def associer(self, request, devis_id):
+        d = _devis_ou_404(request, devis_id)
+        if not d:
+            return refus({"detail": "Devis introuvable."}, status=404)
+        with transaction.atomic():
+            err = _associer_ligne(d, request.data or {}, request.user.id)
+            if err is not None:
+                return err
+        return Response(_devis_dict(d))
+
+
+    @action(detail=True, methods=['post'])
+    def reference_producteur(self, request, devis_id):
+        d = _devis_ou_404(request, devis_id)
+        if not d:
+            return refus({"detail": "Devis introuvable."}, status=404)
+        payload = request.data or {}
+        if not payload.get("reference_producteur"):
+            return refus({"detail": "reference_producteur requis."}, status=422)
+        ref = payload["reference_producteur"].strip() or None
+        d.reference_producteur = ref
+        d.save(update_fields=["reference_producteur"])
+        if ref and d.commande_origine_id:
+            cmd = Commande.objects.filter(id=d.commande_origine_id).first()
+            if cmd:
+                cmd.reference_fournisseur = ref
+                cmd.save(update_fields=["reference_fournisseur"])
+        return Response(_devis_dict(d))
+
+
+    @action(detail=True, methods=['post'])
+    def annuler(self, request, devis_id):
+        d = _devis_ou_404(request, devis_id)
+        if not d:
+            return refus({"detail": "Devis introuvable."}, status=404)
+        lignes = LigneDevis.objects.filter(devis_id=d.id)
+        if any(float(l.qte_livree) > 0 or float(l.qte_facturee) > 0 for l in lignes):
+            return refus({"detail": "Impossible d'annuler : des livraisons ou factures "
+                                    "existent déjà."}, status=409)
+        if d.statut == "annule":
+            return refus({"detail": "Déjà annulé."}, status=409)
+        d.statut = "annule"
+        d.save(update_fields=["statut"])
+        # PO du groupe : l'annulation du vendeur annule aussi les demandes de
+        # course encore en attente chez le transporteur
+        if d.commande_origine_id:
+            Course.objects.filter(commande_origine_id=d.commande_origine_id,
+                                  statut="demande").update(statut="annulee")
+        services.enregistrer_audit(request.user.id, "ANNULATION", "devis", d.id, None,
+                                   {"numero": d.numero})
+        return Response(_devis_dict(d))
+
+
+    @action(detail=True, methods=['post'])
+    def livrer(self, request, devis_id):
+        d = _devis_ou_404(request, devis_id)
+        if not d:
+            return refus({"detail": "Devis introuvable."}, status=404)
+        if d.statut != "confirme":
+            return refus({"detail": "Confirmez la commande avant de livrer."}, status=409)
+        payload = request.data or {}
+        if not payload.get("lignes"):
+            return refus({"detail": "Aucune quantité à livrer."}, status=400)
+        # PO avec transporteur du groupe : chaque étape attend son tour — pas de
+        # chargement tant que la fiche de course n'est pas prise en charge ET validée
+        if d.commande_origine_id:
+            cmd_po = Commande.objects.filter(id=d.commande_origine_id).first()
+            if cmd_po and cmd_po.transporteur_societe_id:
+                transporteur = Societe.objects.filter(
+                    id=cmd_po.transporteur_societe_id).first()
+                crs = intersociete_lib.course_active(cmd_po.id)
+                if not crs or crs.statut in ("demande", "brouillon", "annulee"):
+                    return refus({"detail": f"Chargement bloqué : la fiche de course n'est "
+                                            f"pas encore prête — on attend "
+                                            f"{transporteur.nom if transporteur else 'le transporteur'} "
+                                            f"(prise en charge puis validation de la "
+                                            f"fiche)."}, status=409)
+        societe = Societe.objects.filter(id=d.societe_id).first()
+        jour = date.today()
+        with transaction.atomic():
+            numero = services.next_numero("livraison", jour.year, societe.code, societe.id)
+            bl = Livraison.objects.create(
+                societe_id=d.societe_id, devis_id=d.id, numero=numero, date_livraison=jour,
+                note=(payload.get("note") or "").strip() or None,
+                created_by=request.user.id, created_at=services.maintenant())
+
+            lignes_par_id = {str(l.id): l for l in LigneDevis.objects.filter(devis_id=d.id)}
+            po = bool(d.commande_origine_id)
+            stock_par_compte: dict[str, float] = {}
+            for rl in payload["lignes"]:
+                orig = lignes_par_id.get(str(rl.get("ligne_id")))
+                if not orig:
+                    return refus({"detail": "Ligne étrangère à la commande."}, status=400)
+                art = Article.objects.filter(id=orig.article_id).first() \
+                    if orig.article_id else None
+                gere = bool(art and art.gere_stock)
+                if po and not art:
+                    return refus({"detail": f"« {orig.designation} » : associez d'abord "
+                                            f"cette ligne à un article de votre stock "
+                                            f"(bouton « Associer les articles » de la "
+                                            f"commande)."}, status=409)
+                if not gere and not po:
+                    return refus({"detail": f"« {orig.designation} » n'est pas un article "
+                                            f"en stock — rien à livrer."}, status=400)
+                qte = float(rl.get("qte", 0))
+                if qte <= 0:
+                    return refus({"detail": "Quantité invalide."}, status=422)
+                restant = round(float(orig.qte) - float(orig.qte_livree), 3)
+                if qte > restant + 1e-6:
+                    return refus({"detail": f"{qte} demandé mais {restant} restant à livrer "
+                                            f"sur « {orig.designation} »."}, status=409)
+                cump = val = 0.0
+                if gere:
+                    from apps.stocks import services as stock_lib
+                    central = stock_lib.depot_central(d.societe_id)
+                    dispo = stock_lib.qte_disponible(central.id, art.id)
+                    if dispo < qte - 1e-6:
+                        return refus({"detail": f"Stock insuffisant pour {art.code} "
+                                                f"au dépôt central : {dispo} "
+                                                f"disponible, {qte} à livrer."},
+                                     status=409)
+                    cump = stock_lib.cump_depot(central.id, art)
+                    val = stock_lib.sortie(art, central, qte, "livraison", numero,
+                                           jour=jour)
+                    stock_par_compte[art.compte_stock] = round(
+                        stock_par_compte.get(art.compte_stock, 0.0) + val, 2)
+                orig.qte_livree = round(float(orig.qte_livree) + qte, 3)
+                orig.save(update_fields=["qte_livree"])
+                LigneLivraison.objects.create(
+                    livraison_id=bl.id, ligne_devis_id=orig.id,
+                    article_id=art.id if art else None, designation=orig.designation,
+                    qte=qte, cout_unitaire=round(cump, 4), valeur=val)
+
+            if stock_par_compte:
+                # Sortie de stock EN ATTENTE du comptable (revue des pièces)
+                comptabilite.comptabiliser_stock_sortie(
+                    d.societe_id, stock_par_compte, numero, jour, "livraison", bl.id,
+                    request.user.id,
+                    statut="en_attente" if po
+                    else intersociete_lib._statut_piece(d.societe_id, "vente"))
+            services.enregistrer_audit(request.user.id, "INSERT", "livraison", bl.id, None,
+                                       {"numero": numero, "devis": d.numero})
+        return Response(_devis_dict(d), status=201)
+
+
+    @action(detail=True, methods=['post'])
+    def facturer(self, request, devis_id):
+        """Facture les quantités livrées non encore facturées (+ lignes libres)."""
+        d = _devis_ou_404(request, devis_id)
+        if not d:
+            return refus({"detail": "Devis introuvable."}, status=404)
+        if d.statut != "confirme":
+            return refus({"detail": "Confirmez la commande avant de facturer."}, status=409)
+        payload = request.data or {}
+        # PO intersociété : facturation conditionnée à la réception de l'acheteur
+        if d.commande_origine_id:
+            cmd_po = Commande.objects.filter(id=d.commande_origine_id).first()
+            if cmd_po:
+                r = intersociete_lib.reception_po_resume(cmd_po)
+                if r["totaux"]["livre"] > 0 and not r["complete"]:
+                    return refus({"detail": "Facturation bloquée : l'acheteur n'a pas encore "
+                                            "réceptionné toute la marchandise chargée (règle "
+                                            "du groupe — la facture suit la réception)."},
+                                 status=409)
+        societe = Societe.objects.filter(id=d.societe_id).first()
+        jour = date.today()
+        po = bool(d.commande_origine_id)
+        a_facturer = []
+        for l in LigneDevis.objects.filter(devis_id=d.id).order_by("ordre"):
+            art = Article.objects.filter(id=l.article_id).first() if l.article_id else None
+            qf = _facturable(l, art, po)
+            if qf > 0:
+                a_facturer.append((l, art, qf))
+        if not a_facturer:
+            return refus({"detail": "Rien à facturer — livrez d'abord (ou tout est déjà "
+                                    "facturé)."}, status=409)
+
+        with transaction.atomic():
+            numero = services.next_numero("facture_vente", jour.year, societe.code,
+                                          societe.id)
+            statut_piece = "en_attente" if po \
+                else intersociete_lib._statut_piece(d.societe_id, "vente")
+            fac = Facture.objects.create(
+                societe_id=d.societe_id, type="vente", numero=numero, tiers_id=d.tiers_id,
+                date_facture=jour,
+                echeance=date.fromisoformat(payload["echeance"])
+                if payload.get("echeance") else None,
+                reference=d.reference_producteur,
+                statut="validee" if statut_piece == "valide" else "en_attente",
+                devis_id=d.id, created_by=request.user.id, created_at=services.maintenant())
+
+            total_ht = total_tva = cout_total = 0.0
+            lm_list = []
+            for l, art, qf in a_facturer:
+                ht = round(float(l.montant_ht) * qf / float(l.qte), 2)
+                tva = round(float(l.montant_tva) * qf / float(l.qte), 2)
+                total_ht += ht
+                total_tva += tva
+                agg = LigneLivraison.objects.filter(ligne_devis_id=l.id).aggregate(
+                    v=Sum("valeur"), q=Sum("qte"))
+                cump_moy = float(agg["v"] or 0) / float(agg["q"]) if float(agg["q"] or 0) \
+                    else 0.0
+                cout = round(qf * cump_moy, 2)
+                cout_total += cout
+                lm = LigneFacture.objects.create(
+                    facture_id=fac.id, article_id=l.article_id, designation=l.designation,
+                    qte=qf, prix_unitaire=float(l.prix_unitaire),
+                    remise_pct=float(l.remise_pct or 0), taux_tva=float(l.taux_tva),
+                    montant_ht=ht, montant_tva=tva)
+                lm_list.append(lm)
+                l.qte_facturee = round(float(l.qte_facturee) + qf, 3)
+                l.save(update_fields=["qte_facturee"])
+
+            fac.total_ht = round(total_ht, 2)
+            fac.total_tva = round(total_tva, 2)
+            fac.total_ttc = round(total_ht + total_tva, 2)
+            fac.cout_ventes = round(cout_total, 2)
+            fac.marge = round(fac.total_ht - cout_total, 2)
+            ecr = comptabilite.comptabiliser_facture(fac, lm_list, request.user.id,
+                                                     statut=statut_piece)
+            fac.ecriture_id = ecr.id
+            fac.save()
+            # Intersociété : client du groupe → facture d'achat miroir
+            intersociete_lib.creer_facture_miroir(fac, request.user.id)
+            # PO d'origine : tout facturé → commande soldée chez l'acheteur
+            if d.commande_origine_id and all(
+                    _facturable(l, Article.objects.filter(id=l.article_id).first()
+                                if l.article_id else None, po=True) <= 0
+                    for l in LigneDevis.objects.filter(devis_id=d.id)):
+                cmd_origine = Commande.objects.filter(id=d.commande_origine_id).first()
+                if cmd_origine:
+                    cmd_origine.statut = "soldee"
+                    cmd_origine.save(update_fields=["statut"])
+            services.enregistrer_audit(request.user.id, "INSERT", "facture", fac.id, None,
+                                       {"numero": numero, "devis": d.numero,
+                                        "ttc": float(fac.total_ttc)})
+        return Response({"facture": {"id": str(fac.id), "numero": numero,
+                                     "total_ttc": float(fac.total_ttc)},
+                         "devis": _devis_dict(d)}, status=201)
 
 
 # ── Règlement client ─────────────────────────────────────────────────
-@api_view(["POST"])
-def regler_facture(request, facture_id):
-    """Encaisse un règlement client : D trésorerie / C 411 (tiers, lettrable)."""
-    fac = Facture.objects.filter(id=facture_id).first()
-    if not fac or fac.type != "vente":
-        return refus({"detail": "Facture de vente introuvable."}, status=404)
-    roles = assert_acces_societe(request.user, fac.societe_id)
-    assert_role(roles, ROLES | {"CAISSIER_CENTRAL"})
-    payload = request.data or {}
-    mode = payload.get("mode")
-    devise = payload.get("devise", "USD")
-    montant = payload.get("montant")
-    if mode not in ("espece", "banque", "mobile_money") \
-            or devise not in ("USD", "CDF") or not montant or float(montant) <= 0:
-        return refus({"detail": "mode (espece|banque|mobile_money), devise et montant "
-                                "> 0 requis."}, status=422)
-    societe = Societe.objects.filter(id=fac.societe_id).first()
-    tiers = Tiers.objects.filter(id=fac.tiers_id).first()
-    sit = _reglement_facture(fac)
-    solde = sit["solde_du_usd"]
-    if solde <= 0.009:
-        return refus({"detail": "Cette facture est déjà réglée."}, status=409)
+class FactureViewSet(MetierModelViewSet):
+    """Ressource Facture ; contrats HTTP et validations métier conservés."""
+    queryset = Facture.objects.none()
+    serializer_class = FactureSerializer
+    lookup_url_kwarg = 'facture_id'
 
-    jour = date.today()
-    taux = None
-    if devise == "CDF":
-        t = services.get_taux_jour(jour, "CDF")
-        if not t:
-            return refus({"detail": "Aucun taux USD/CDF défini aujourd'hui — définissez "
-                                    "le taux du jour."}, status=409)
-        taux = float(t)
-        montant_usd = round(float(montant) / taux, 2)
-    else:
-        montant_usd = round(float(montant), 2)
-    if montant_usd > solde + 0.01:
-        return refus({"detail": f"Règlement de {montant_usd:.2f} USD supérieur au solde "
-                                f"dû ({solde:.2f} USD)."}, status=400)
+    @action(detail=True, methods=['post'])
+    def regler(self, request, facture_id):
+        """Encaisse un règlement client : D trésorerie / C 411 (tiers, lettrable)."""
+        fac = Facture.objects.filter(id=facture_id).first()
+        if not fac or fac.type != "vente":
+            return refus({"detail": "Facture de vente introuvable."}, status=404)
+        roles = assert_acces_societe(request.user, fac.societe_id)
+        assert_role(roles, ROLES | {"CAISSIER_CENTRAL"})
+        payload = request.data or {}
+        mode = payload.get("mode")
+        devise = payload.get("devise", "USD")
+        montant = payload.get("montant")
+        if mode not in ("espece", "banque", "mobile_money") \
+                or devise not in ("USD", "CDF") or not montant or float(montant) <= 0:
+            return refus({"detail": "mode (espece|banque|mobile_money), devise et montant "
+                                    "> 0 requis."}, status=422)
+        societe = Societe.objects.filter(id=fac.societe_id).first()
+        tiers = Tiers.objects.filter(id=fac.tiers_id).first()
+        sit = _reglement_facture(fac)
+        solde = sit["solde_du_usd"]
+        if solde <= 0.009:
+            return refus({"detail": "Cette facture est déjà réglée."}, status=409)
 
-    caisse = sess = None
-    if mode == "espece":
-        if not payload.get("caisse_id"):
-            return refus({"detail": "Choisissez la caisse qui encaisse."}, status=400)
-        caisse = Caisse.objects.filter(id=payload["caisse_id"]).first()
-        if not caisse or str(caisse.societe_id) != str(fac.societe_id):
-            return refus({"detail": "Caisse invalide."}, status=400)
-        sess = _session_ouverte(caisse.id)
-        if not sess:
-            return refus({"detail": f"Ouvrez la caisse « {caisse.libelle} » avant "
-                                    f"d'encaisser."}, status=409)
-        compte_tres = caisse.compte_comptable
-    elif mode == "banque":
-        compte_tres = comptabilite._compte("compte_banque", fac.societe_id)
-    else:
-        compte_tres = comptabilite._compte("compte_mobile_money", fac.societe_id)
+        jour = date.today()
+        taux = None
+        if devise == "CDF":
+            t = services.get_taux_jour(jour, "CDF")
+            if not t:
+                return refus({"detail": "Aucun taux USD/CDF défini aujourd'hui — définissez "
+                                        "le taux du jour."}, status=409)
+            taux = float(t)
+            montant_usd = round(float(montant) / taux, 2)
+        else:
+            montant_usd = round(float(montant), 2)
+        if montant_usd > solde + 0.01:
+            return refus({"detail": f"Règlement de {montant_usd:.2f} USD supérieur au solde "
+                                    f"dû ({solde:.2f} USD)."}, status=400)
 
-    with transaction.atomic():
-        lignes = [{"sens": "D", "compte": compte_tres, "montant_usd": montant_usd,
-                   "devise_origine": devise, "montant_origine": round(float(montant), 2),
-                   "taux_jour": taux, "libelle": f"Règlement {fac.numero} — {tiers.nom}"},
-                  {"sens": "C",
-                   "compte": comptabilite._compte("compte_client", fac.societe_id),
-                   "montant_usd": montant_usd, "tiers_id": tiers.id,
-                   "libelle": f"Règlement client {tiers.nom} — {fac.numero}"}]
-        ecr = comptabilite.post_ecriture(fac.societe_id, "VE", "Ventes", "vente", jour,
-                                         f"Règlement {fac.numero} — {tiers.nom}", lignes,
-                                         "reglement_client", "facture", fac.id,
-                                         fac.numero, request.user.id,
-                                         statut=intersociete_lib._statut_piece(
-                                             fac.societe_id, "vente"))
-        PaiementFacture.objects.create(
-            facture_id=fac.id, mode=mode, devise=devise,
-            montant=round(float(montant), 2), taux_jour=taux, montant_usd=montant_usd,
-            reference=(payload.get("reference") or "").strip() or None,
-            compte=compte_tres)
-        if caisse:
-            MouvementCaisse.objects.create(
-                caisse_id=caisse.id, session_id=sess.id,
-                numero=services.next_numero("bon_caisse", jour.year, societe.code,
-                                            societe.id),
-                reference=fac.numero, sens="entree", nature="Encaissement client",
-                devise=devise, taux_jour=taux, montant=round(float(montant), 2),
-                montant_usd=montant_usd, tiers_id=tiers.id, tiers_nom=tiers.nom,
-                reference_type="facture", reference_id=fac.id,
-                libelle=f"Règlement {fac.numero} — {tiers.nom}",
-                created_by=request.user.id,
-                date_mouvement=services.maintenant().date(), heure=services.maintenant())
-        services.enregistrer_audit(request.user.id, "REGLEMENT", "facture", fac.id, None,
-                                   {"numero": fac.numero, "montant_usd": montant_usd,
-                                    "mode": mode})
-    sit = _reglement_facture(fac)
-    return Response({"ecriture": ecr.numero, **sit}, status=201)
+        caisse = sess = None
+        if mode == "espece":
+            if not payload.get("caisse_id"):
+                return refus({"detail": "Choisissez la caisse qui encaisse."}, status=400)
+            caisse = Caisse.objects.filter(id=payload["caisse_id"]).first()
+            if not caisse or str(caisse.societe_id) != str(fac.societe_id):
+                return refus({"detail": "Caisse invalide."}, status=400)
+            sess = _session_ouverte(caisse.id)
+            if not sess:
+                return refus({"detail": f"Ouvrez la caisse « {caisse.libelle} » avant "
+                                        f"d'encaisser."}, status=409)
+            compte_tres = caisse.compte_comptable
+        elif mode == "banque":
+            compte_tres = comptabilite._compte("compte_banque", fac.societe_id)
+        else:
+            compte_tres = comptabilite._compte("compte_mobile_money", fac.societe_id)
+
+        with transaction.atomic():
+            lignes = [{"sens": "D", "compte": compte_tres, "montant_usd": montant_usd,
+                       "devise_origine": devise, "montant_origine": round(float(montant), 2),
+                       "taux_jour": taux, "libelle": f"Règlement {fac.numero} — {tiers.nom}"},
+                      {"sens": "C",
+                       "compte": comptabilite._compte("compte_client", fac.societe_id),
+                       "montant_usd": montant_usd, "tiers_id": tiers.id,
+                       "libelle": f"Règlement client {tiers.nom} — {fac.numero}"}]
+            ecr = comptabilite.post_ecriture(fac.societe_id, "VE", "Ventes", "vente", jour,
+                                             f"Règlement {fac.numero} — {tiers.nom}", lignes,
+                                             "reglement_client", "facture", fac.id,
+                                             fac.numero, request.user.id,
+                                             statut=intersociete_lib._statut_piece(
+                                                 fac.societe_id, "vente"))
+            PaiementFacture.objects.create(
+                facture_id=fac.id, mode=mode, devise=devise,
+                montant=round(float(montant), 2), taux_jour=taux, montant_usd=montant_usd,
+                reference=(payload.get("reference") or "").strip() or None,
+                compte=compte_tres)
+            if caisse:
+                MouvementCaisse.objects.create(
+                    caisse_id=caisse.id, session_id=sess.id,
+                    numero=services.next_numero("bon_caisse", jour.year, societe.code,
+                                                societe.id),
+                    reference=fac.numero, sens="entree", nature="Encaissement client",
+                    devise=devise, taux_jour=taux, montant=round(float(montant), 2),
+                    montant_usd=montant_usd, tiers_id=tiers.id, tiers_nom=tiers.nom,
+                    reference_type="facture", reference_id=fac.id,
+                    libelle=f"Règlement {fac.numero} — {tiers.nom}",
+                    created_by=request.user.id,
+                    date_mouvement=services.maintenant().date(), heure=services.maintenant())
+            services.enregistrer_audit(request.user.id, "REGLEMENT", "facture", fac.id, None,
+                                       {"numero": fac.numero, "montant_usd": montant_usd,
+                                        "mode": mode})
+        sit = _reglement_facture(fac)
+        return Response({"ecriture": ecr.numero, **sit}, status=201)
 
 
 # ── Encours clients ──────────────────────────────────────────────────
-@api_view(["GET"])
-def encours_clients(request):
-    """Créances clients : solde 41x par client + factures non soldées."""
-    sid = _societe_param(request)
-    roles = assert_acces_societe(request.user, sid)
-    assert_role(roles, ROLES)
-    rows = (LigneEcriture.objects
-            .filter(societe_id=sid, tiers_id__isnull=False,
-                    compte_numero__startswith="41")
-            .values_list("tiers_id", "sens").annotate(total=Sum("montant_usd"))
-            .values_list("tiers_id", "sens", "total"))
-    soldes: dict = {}
-    for tiers_id, sens, montant in rows:
-        soldes[tiers_id] = round(soldes.get(tiers_id, 0.0)
-                                 + (float(montant or 0) if sens == "D"
-                                    else -float(montant or 0)), 2)
-    out = []
-    for tiers_id, solde in soldes.items():
-        if abs(solde) < 0.01:
-            continue
-        t = Tiers.objects.filter(id=tiers_id).first()
-        facs = Facture.objects.filter(societe_id=sid, tiers_id=tiers_id, type="vente")
-        dues = []
-        for f in facs:
-            sit = _reglement_facture(f)
-            if sit["solde_du_usd"] > 0.009:
-                dues.append({"numero": f.numero, "date": f.date_facture.isoformat(),
-                             "echeance": f.echeance.isoformat() if f.echeance else None,
-                             "solde_du_usd": sit["solde_du_usd"],
-                             "en_retard": sit["en_retard"]})
-        out.append({"tiers_id": str(tiers_id), "client": t.nom if t else "?",
-                    "solde_usd": solde,
-                    "limite_credit_usd": float(t.limite_credit_usd)
-                    if t and t.limite_credit_usd is not None else None,
-                    "factures_dues": sorted(dues, key=lambda x: x["date"]),
-                    "en_retard": any(x["en_retard"] for x in dues)})
-    return Response(sorted(out, key=lambda x: -x["solde_usd"]))
+class EncoursViewSet(MetierViewSet):
+    """Ressource Encours ; contrats HTTP et validations métier conservés."""
+
+    @action(detail=False, methods=['get'])
+    def encours_clients(self, request):
+        """Créances clients : solde 41x par client + factures non soldées."""
+        sid = _societe_param(request)
+        roles = assert_acces_societe(request.user, sid)
+        assert_role(roles, ROLES)
+        rows = (LigneEcriture.objects
+                .filter(societe_id=sid, tiers_id__isnull=False,
+                        compte_numero__startswith="41")
+                .values_list("tiers_id", "sens").annotate(total=Sum("montant_usd"))
+                .values_list("tiers_id", "sens", "total"))
+        soldes: dict = {}
+        for tiers_id, sens, montant in rows:
+            soldes[tiers_id] = round(soldes.get(tiers_id, 0.0)
+                                     + (float(montant or 0) if sens == "D"
+                                        else -float(montant or 0)), 2)
+        out = []
+        for tiers_id, solde in soldes.items():
+            if abs(solde) < 0.01:
+                continue
+            t = Tiers.objects.filter(id=tiers_id).first()
+            facs = Facture.objects.filter(societe_id=sid, tiers_id=tiers_id, type="vente")
+            dues = []
+            for f in facs:
+                sit = _reglement_facture(f)
+                if sit["solde_du_usd"] > 0.009:
+                    dues.append({"numero": f.numero, "date": f.date_facture.isoformat(),
+                                 "echeance": f.echeance.isoformat() if f.echeance else None,
+                                 "solde_du_usd": sit["solde_du_usd"],
+                                 "en_retard": sit["en_retard"]})
+            out.append({"tiers_id": str(tiers_id), "client": t.nom if t else "?",
+                        "solde_usd": solde,
+                        "limite_credit_usd": float(t.limite_credit_usd)
+                        if t and t.limite_credit_usd is not None else None,
+                        "factures_dues": sorted(dues, key=lambda x: x["date"]),
+                        "en_retard": any(x["en_retard"] for x in dues)})
+        return Response(sorted(out, key=lambda x: -x["solde_usd"]))
+
+
+# Anciens points d’entrée conservés pour les intégrations existantes.
+devis = DevisViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='devis')
+devis_detail = DevisViewSet.as_view({'get': 'retrieve', 'put': 'update'}, http_method_names=['get', 'put', 'options'], detail=True, basename='devis')
+envoyer_devis = DevisViewSet.as_view({'post': 'envoyer'}, http_method_names=['post', 'options'], detail=True, basename='devis')
+confirmer_devis = DevisViewSet.as_view({'post': 'confirmer'}, http_method_names=['post', 'options'], detail=True, basename='devis')
+associer_articles = DevisViewSet.as_view({'post': 'associer'}, http_method_names=['post', 'options'], detail=True, basename='devis')
+maj_reference_producteur = DevisViewSet.as_view({'post': 'reference_producteur'}, http_method_names=['post', 'options'], detail=True, basename='devis')
+annuler_devis = DevisViewSet.as_view({'post': 'annuler'}, http_method_names=['post', 'options'], detail=True, basename='devis')
+livrer = DevisViewSet.as_view({'post': 'livrer'}, http_method_names=['post', 'options'], detail=True, basename='devis')
+facturer = DevisViewSet.as_view({'post': 'facturer'}, http_method_names=['post', 'options'], detail=True, basename='devis')
+regler_facture = FactureViewSet.as_view({'post': 'regler'}, http_method_names=['post', 'options'], detail=True, basename='facture')
+encours_clients = EncoursViewSet.as_view({'get': 'encours_clients'}, http_method_names=['get', 'options'], detail=False, basename='encours')
