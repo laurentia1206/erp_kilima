@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Données locales — JAMAIS dans git (sauvegardes quotidiennes dans backend/backups/)
+backend/kilima_dev.db
+backend/backups/
+backend/uploads/
+
+# Secrets
+backend/.env
+
+# Outillage local (conversion de documents, etc.)
+.build/
+node_modules/
+
+# Divers
+*.log
+.DS_Store

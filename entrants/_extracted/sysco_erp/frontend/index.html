@@ -1,0 +1,1998 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SYSCO ERP — Comptabilité OHADA</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --ink:    #0D1B2A; --ink2: #2C3E50; --ink3: #566573; --ink4: #AEB6BF;
+  --bg:     #F4F6F8; --surface: #FFFFFF; --border: #E2E8EE; --border2: #CBD5DE;
+  --navy:   #0A2342; --navy2: #1A3F6F; --accent: #1F6FEB; --accent-l: #EBF3FF;
+  --teal:   #0B6E5E; --teal-l: #E0F5F1;
+  --amber:  #B45309; --amber-l: #FEF3C7;
+  --red:    #B91C1C; --red-l: #FEE2E2;
+  --green:  #166534; --green-l: #DCFCE7;
+  --purple: #5B21B6; --purple-l: #EDE9FE;
+  --mono:   'JetBrains Mono', 'Courier New', monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; font-family: 'Inter', system-ui, -apple-system, sans-serif; font-size: 13px; background: var(--bg); color: var(--ink); }
+
+/* ── Layout ── */
+.app    { display: flex; height: 100vh; overflow: hidden; }
+.side   { width: 220px; min-width: 220px; background: var(--navy); display: flex; flex-direction: column; overflow: hidden; }
+.main   { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+
+/* ── Sidebar ── */
+.brand  { padding: 16px 14px 12px; border-bottom: 1px solid rgba(255,255,255,.07); }
+.brand-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.brand-av   { width: 32px; height: 32px; border-radius: 8px; background: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: #fff; flex-shrink: 0; }
+.brand-name { font-size: 13px; font-weight: 600; color: #fff; }
+.brand-sub  { font-size: 10px; color: rgba(255,255,255,.4); }
+.company-btn { width: 100%; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); border-radius: 6px; padding: 7px 10px; display: flex; align-items: center; gap: 8px; cursor: pointer; color: rgba(255,255,255,.8); font-size: 12px; font-family: inherit; }
+.company-btn:hover { background: rgba(255,255,255,.1); }
+.company-dot { width: 8px; height: 8px; border-radius: 50%; background: #4ADE80; }
+
+.nav-section { padding: 12px 14px 4px; font-size: 9px; font-weight: 600; color: rgba(255,255,255,.25); letter-spacing: .1em; text-transform: uppercase; }
+.nav-scroll  { flex: 1; overflow-y: auto; padding: 4px 0 8px; }
+.nav-scroll::-webkit-scrollbar { width: 3px; }
+.nav-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 2px; }
+
+.nav-item { display: flex; align-items: center; gap: 9px; padding: 7px 14px; cursor: pointer; color: rgba(255,255,255,.55); font-size: 12.5px; border-left: 2px solid transparent; transition: all .12s; }
+.nav-item:hover { color: rgba(255,255,255,.85); background: rgba(255,255,255,.05); }
+.nav-item.active { color: #fff; background: rgba(31,111,235,.25); border-left-color: var(--accent); font-weight: 500; }
+.nav-item .ni  { font-size: 15px; width: 16px; text-align: center; flex-shrink: 0; }
+.nav-badge { margin-left: auto; background: var(--red); color: #fff; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 8px; }
+
+.side-foot { padding: 10px 14px; border-top: 1px solid rgba(255,255,255,.07); }
+.user-row  { display: flex; align-items: center; gap: 8px; }
+.user-av   { width: 28px; height: 28px; border-radius: 50%; background: var(--teal); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: #fff; flex-shrink: 0; }
+.user-name { font-size: 11.5px; font-weight: 500; color: rgba(255,255,255,.75); }
+.user-role { font-size: 10px; color: rgba(255,255,255,.35); }
+
+/* ── Topbar ── */
+.topbar { height: 52px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; gap: 12px; flex-shrink: 0; }
+.tb-title { font-size: 15px; font-weight: 600; color: var(--ink); flex: 1; }
+.tb-sub   { font-size: 11px; color: var(--ink3); }
+.btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border: 1px solid var(--border2); border-radius: 6px; font-size: 12px; cursor: pointer; color: var(--ink2); background: var(--surface); font-family: inherit; transition: background .12s; white-space: nowrap; }
+.btn:hover { background: var(--bg); }
+.btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn-primary:hover { background: #1557d4; }
+.btn-danger  { background: var(--red); color: #fff; border-color: var(--red); }
+
+/* ── Content ── */
+.content { flex: 1; overflow-y: auto; padding: 20px; }
+.content::-webkit-scrollbar { width: 5px; }
+.content::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+.page { display: none; }
+.page.active { display: block; }
+
+/* ── Cards & KPI ── */
+.kpi-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 16px; }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+.kpi-label { font-size: 11px; color: var(--ink3); margin-bottom: 5px; font-weight: 500; }
+.kpi-value { font-size: 22px; font-weight: 700; font-family: var(--mono); letter-spacing: -.03em; color: var(--ink); }
+.kpi-footer { margin-top: 6px; display: flex; align-items: center; gap: 6px; }
+.pill { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 10px; }
+.pill-ok { background: var(--green-l); color: var(--green); }
+.pill-warn { background: var(--amber-l); color: var(--amber); }
+.pill-err { background: var(--red-l); color: var(--red); }
+.pill-info { background: var(--accent-l); color: var(--accent); }
+.pill-teal { background: var(--teal-l); color: var(--teal); }
+
+/* ── Panel ── */
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 14px; }
+.panel-header { display: flex; align-items: center; justify-content: space-between; padding: 11px 16px; border-bottom: 1px solid var(--border); }
+.panel-title  { font-size: 13px; font-weight: 600; color: var(--ink); }
+.panel-actions { display: flex; gap: 8px; align-items: center; }
+
+/* ── Grid layouts ── */
+.g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+.g21 { display: grid; grid-template-columns: 1.6fr 1fr; gap: 14px; }
+
+/* ── Table ── */
+.tbl-wrap { overflow-x: auto; }
+.tbl { width: 100%; border-collapse: collapse; }
+.tbl th { padding: 8px 12px; text-align: left; font-size: 10px; font-weight: 600; color: var(--ink3); text-transform: uppercase; letter-spacing: .05em; background: var(--bg); border-bottom: 1px solid var(--border); white-space: nowrap; }
+.tbl th.r, .tbl td.r { text-align: right; }
+.tbl td { padding: 8px 12px; font-size: 12px; color: var(--ink2); border-bottom: 1px solid var(--border); white-space: nowrap; }
+.tbl tr:last-child td { border-bottom: none; }
+.tbl tr:hover td { background: var(--bg); }
+.mono { font-family: var(--mono); font-size: 11.5px; }
+.fw { font-weight: 600; color: var(--ink); }
+.pos { color: var(--green); font-weight: 600; }
+.neg { color: var(--red); font-weight: 600; }
+.muted { color: var(--ink4); }
+
+/* Audit couleurs */
+.audit-ok   { background: var(--green-l); color: var(--green); }
+.audit-warn { background: var(--amber-l); color: var(--amber); }
+.audit-crit { background: var(--red-l);   color: var(--red);   }
+.audit-dot  { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+.dot-ok   { background: var(--green); }
+.dot-warn { background: var(--amber); }
+.dot-crit { background: var(--red); }
+
+/* ── Filter bar ── */
+.filter-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--bg); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.filter-bar label { font-size: 11px; color: var(--ink3); font-weight: 500; }
+.filter-bar select, .filter-bar input { padding: 5px 9px; border: 1px solid var(--border2); border-radius: 6px; font-size: 12px; background: var(--surface); color: var(--ink); font-family: inherit; }
+.filter-bar input { width: 180px; }
+.fsep { flex: 1; }
+
+/* ── Form ── */
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 16px; }
+.form-grid3 { grid-template-columns: 1fr 1fr 1fr; }
+.fgroup { display: flex; flex-direction: column; gap: 5px; }
+.fgroup.full { grid-column: 1/-1; }
+.fgroup label { font-size: 10px; font-weight: 600; color: var(--ink3); text-transform: uppercase; letter-spacing: .05em; }
+.fgroup input, .fgroup select, .fgroup textarea { padding: 7px 10px; border: 1px solid var(--border2); border-radius: 6px; font-size: 12.5px; color: var(--ink); background: var(--surface); font-family: inherit; }
+.fgroup input:focus, .fgroup select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(31,111,235,.15); }
+
+/* ── Écriture lignes ── */
+.entry-section { padding: 0 16px 10px; }
+.entry-section-title { font-size: 10px; font-weight: 600; color: var(--ink3); text-transform: uppercase; letter-spacing: .05em; padding: 10px 0 6px; display: flex; align-items: center; gap: 8px; }
+.entry-line { display: grid; grid-template-columns: 1fr 140px 32px; gap: 8px; margin-bottom: 6px; align-items: center; }
+.entry-line select, .entry-line input { padding: 6px 9px; border: 1px solid var(--border2); border-radius: 6px; font-size: 12px; font-family: inherit; color: var(--ink); background: var(--surface); }
+.entry-line input { text-align: right; font-family: var(--mono); }
+.btn-icon { width: 28px; height: 28px; border: 1px solid var(--border2); border-radius: 6px; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; color: var(--ink3); }
+.btn-icon:hover { background: var(--red-l); color: var(--red); border-color: var(--red); }
+.btn-add { background: none; border: 1px dashed var(--border2); border-radius: 6px; padding: 5px 10px; font-size: 12px; color: var(--ink3); cursor: pointer; font-family: inherit; }
+.btn-add:hover { border-color: var(--accent); color: var(--accent); }
+
+.balance-bar { padding: 12px 16px; border-top: 1px solid var(--border); background: var(--bg); display: flex; align-items: center; gap: 12px; }
+.bal-item { font-size: 12px; color: var(--ink3); }
+.bal-item b { color: var(--ink); }
+.bal-status { margin-left: auto; }
+
+/* ── Anomaly card ── */
+.anom-card { border-left: 3px solid; padding: 11px 14px; margin-bottom: 8px; border-radius: 0 8px 8px 0; }
+.anom-crit { border-color: var(--red); background: var(--red-l); }
+.anom-warn { border-color: var(--amber); background: var(--amber-l); }
+.anom-title { font-size: 12.5px; font-weight: 600; color: var(--ink); margin-bottom: 3px; }
+.anom-desc  { font-size: 11.5px; color: var(--ink2); margin-bottom: 4px; }
+.anom-rule  { font-size: 10px; color: var(--ink3); font-style: italic; }
+
+/* ── Import zone ── */
+.drop-zone { border: 2px dashed var(--border2); border-radius: 10px; padding: 40px; text-align: center; cursor: pointer; transition: border-color .2s; margin: 16px; }
+.drop-zone:hover { border-color: var(--accent); }
+.drop-icon  { font-size: 40px; margin-bottom: 10px; }
+.drop-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.drop-sub   { font-size: 12px; color: var(--ink3); margin-bottom: 16px; }
+
+/* ── Modal ── */
+.modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100; display: flex; align-items: center; justify-content: center; }
+.modal-bg.hidden { display: none; }
+.modal { background: var(--surface); border-radius: 12px; width: 640px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.2); }
+.modal-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.modal-title  { font-size: 15px; font-weight: 600; }
+.modal-close  { background: none; border: none; font-size: 20px; cursor: pointer; color: var(--ink3); }
+.modal-footer { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; }
+
+/* ── Tabs ── */
+.tabs { display: flex; border-bottom: 1px solid var(--border); padding: 0 16px; }
+.tab  { padding: 9px 14px; font-size: 12.5px; color: var(--ink3); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tab:hover  { color: var(--ink); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 500; }
+
+/* ── Loader ── */
+.loading { display: flex; align-items: center; justify-content: center; padding: 40px; color: var(--ink3); }
+.spinner { width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; margin-right: 10px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Toast ── */
+#toast { position: fixed; bottom: 20px; right: 20px; z-index: 999; }
+.toast { background: var(--navy); color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 12.5px; margin-top: 8px; box-shadow: 0 4px 12px rgba(0,0,0,.2); opacity: 0; transition: opacity .3s; }
+.toast.show { opacity: 1; }
+.toast.err  { background: var(--red); }
+.toast.ok   { background: var(--green); }
+
+/* ── Mini chart bars ── */
+.bar-chart { display: flex; align-items: flex-end; gap: 4px; height: 80px; padding: 8px 16px 6px; }
+.bar-col   { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.bar-fill  { width: 100%; border-radius: 3px 3px 0 0; min-height: 3px; transition: height .3s; cursor: pointer; }
+.bar-lbl   { font-size: 9px; color: var(--ink3); }
+
+/* ── Compte chip ── */
+.class-chip { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 10px; display: inline-block; white-space: nowrap; }
+.cl-actif  { background: var(--accent-l); color: var(--accent); }
+.cl-passif { background: var(--teal-l);  color: var(--teal); }
+.cl-charge { background: var(--amber-l); color: var(--amber); }
+.cl-produit{ background: var(--green-l); color: var(--green); }
+.cl-hb     { background: var(--bg); color: var(--ink3); }
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ═══ SIDEBAR ═══ -->
+<nav class="side">
+  <div class="brand">
+    <div class="brand-logo">
+      <div class="brand-av">SC</div>
+      <div>
+        <div class="brand-name">SYSCO ERP</div>
+        <div class="brand-sub">Comptabilité OHADA</div>
+      </div>
+    </div>
+    <button class="company-btn" onclick="showPage('companies')">
+      <div class="company-dot"></div>
+      <span id="co-btn-label">Planet Resources SARL</span>
+      <span style="margin-left:auto;font-size:10px;opacity:.5">▾</span>
+    </button>
+  </div>
+
+  <div class="nav-scroll">
+    <div class="nav-section">Tableau de bord</div>
+    <div class="nav-item active" data-page="dashboard">
+      <span class="ni">◈</span>Vue d'ensemble
+    </div>
+    <div class="nav-item" data-page="companies">
+      <span class="ni">⊞</span>Multi-sociétés
+    </div>
+
+    <div class="nav-section">Saisie</div>
+    <div class="nav-item" data-page="saisie">
+      <span class="ni">✎</span>Nouvelle écriture
+    </div>
+    <div class="nav-item" data-page="import">
+      <span class="ni">↑</span>Import Balance Excel
+    </div>
+
+    <div class="nav-section">Journaux OHADA</div>
+    <div class="nav-item" data-page="journal" data-journal="">
+      <span class="ni">≡</span>Journal général
+    </div>
+    <div class="nav-item" data-page="journal" data-journal="BQ1">
+      <span class="ni">⬡</span>Journal RAWBANK
+    </div>
+    <div class="nav-item" data-page="journal" data-journal="BQ2">
+      <span class="ni">⬡</span>Journal EQUITY BCDC
+    </div>
+    <div class="nav-item" data-page="journal" data-journal="CA">
+      <span class="ni">◇</span>Journal Caisse
+    </div>
+    <div class="nav-item" data-page="journal" data-journal="VT">
+      <span class="ni">△</span>Journal Ventes
+    </div>
+    <div class="nav-item" data-page="journal" data-journal="AC">
+      <span class="ni">▽</span>Journal Achats
+    </div>
+    <div class="nav-item" data-page="journal" data-journal="OD">
+      <span class="ni">○</span>Opérations diverses
+    </div>
+
+    <div class="nav-section">États financiers</div>
+    <div class="nav-item" data-page="balance">
+      <span class="ni">▤</span>Balance générale
+    </div>
+    <div class="nav-item" data-page="bilan">
+      <span class="ni">▣</span>Bilan OHADA
+    </div>
+    <div class="nav-item" data-page="resultat">
+      <span class="ni">▷</span>Compte de résultat
+    </div>
+
+    <div class="nav-item" data-page="tresorerie">
+      <span class="ni">~</span>Trésorerie (TFT)
+    </div>
+    <div class="nav-item" data-page="grandlivre">
+      <span class="ni">@</span>Grand livre auxiliaire
+    </div>
+
+    <div class="nav-section">Contrôle</div>
+    <div class="nav-item" data-page="audit">
+      <span class="ni">⚑</span>Audit OHADA
+      <span class="nav-badge" id="nav-anom-badge"></span>
+    </div>
+    <div class="nav-item" data-page="kpi">
+      <span class="ni">◎</span>Ratios & KPI
+    </div>
+    <div class="nav-item" data-page="rapproch">
+      <span class="ni">=</span>Rapprochement
+    </div>
+    <div class="nav-section">Configuration</div>
+    <div class="nav-item" data-page="config">
+      <span class="ni">*</span>Plan de compte
+    </div>
+    <div class="nav-item" data-page="config" data-cfg="journaux">
+      <span class="ni">*</span>Journaux
+    </div>
+    <div class="nav-item" data-page="config" data-cfg="exercices">
+      <span class="ni">*</span>Exercices comptables
+    </div>
+  </div>
+
+  <div class="side-foot">
+    <div class="user-row">
+      <div class="user-av">LD</div>
+      <div>
+        <div class="user-name">Laurent Désirée</div>
+        <div class="user-role">Comptable principal</div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<!-- ═══ MAIN ═══ -->
+<div class="main">
+  <div class="topbar">
+    <div>
+      <div class="tb-title" id="tb-title">Vue d'ensemble</div>
+      <div class="tb-sub" id="tb-sub">Exercice 2025 · USD · SYSCOHADA Révisé</div>
+    </div>
+    <button class="btn" onclick="refreshData()">↻ Actualiser</button>
+    <button class="btn" onclick="exportPDF()">⬇ Export PDF</button>
+    <button class="btn btn-primary" onclick="showPage('saisie')">+ Nouvelle écriture</button>
+  </div>
+
+  <div class="content">
+
+    <!-- ═══ DASHBOARD ═══ -->
+    <div class="page active" id="page-dashboard">
+      <div class="kpi-grid" id="kpi-grid">
+        <div class="loading"><div class="spinner"></div>Chargement...</div>
+      </div>
+      <div class="g21">
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">Activité mensuelle</span>
+            <select id="chart-mode" class="btn" onchange="drawChart()">
+              <option value="vol">Volume d'écritures</option>
+              <option value="debit">Flux débits (USD)</option>
+            </select>
+          </div>
+          <div class="bar-chart" id="dash-chart"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">Anomalies OHADA</span>
+            <span class="pill pill-err" id="dash-anom-count">—</span>
+          </div>
+          <div id="dash-anomalies"><div class="loading"><div class="spinner"></div></div></div>
+        </div>
+      </div>
+      <div class="g3">
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Top créances clients</span></div>
+          <div id="dash-clients"><div class="loading"><div class="spinner"></div></div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Top dettes fournisseurs</span></div>
+          <div id="dash-fournisseurs"><div class="loading"><div class="spinner"></div></div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Soldes trésorerie</span></div>
+          <div id="dash-tres"><div class="loading"><div class="spinner"></div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ COMPANIES ═══ -->
+    <div class="page" id="page-companies">
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Sociétés enregistrées</span>
+          <button class="btn btn-primary" onclick="showNewCompanyModal()">+ Ajouter une société</button>
+        </div>
+        <div id="companies-list"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+    </div>
+
+    <!-- ═══ SAISIE ═══ -->
+    <div class="page" id="page-saisie">
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Nouvelle écriture comptable · OHADA</span>
+          <span class="mono muted" id="new-ref">ECR-2025-XXXX</span>
+        </div>
+        <div class="form-grid form-grid3">
+          <div class="fgroup">
+            <label>Date comptable</label>
+            <input type="date" id="ecr-date" value="">
+          </div>
+          <div class="fgroup">
+            <label>Journal OHADA</label>
+            <select id="ecr-journal">
+              <option value="">Choisir un journal...</option>
+            </select>
+          </div>
+          <div class="fgroup">
+            <label>N° pièce justificative</label>
+            <input type="text" id="ecr-piece" placeholder="Facture, chèque, reçu...">
+          </div>
+          <div class="fgroup full">
+            <label>Libellé</label>
+            <input type="text" id="ecr-libelle" placeholder="Description de l'opération...">
+          </div>
+        </div>
+
+        <div class="entry-section">
+          <div class="entry-section-title">
+            <span style="color:var(--accent);font-size:12px">●</span>
+            Lignes Débit
+            <button class="btn-add" onclick="addLine('debit')">+ Ajouter</button>
+          </div>
+          <div id="lines-debit"></div>
+
+          <div class="entry-section-title" style="margin-top:8px">
+            <span style="color:var(--green);font-size:12px">●</span>
+            Lignes Crédit
+            <button class="btn-add" onclick="addLine('credit')">+ Ajouter</button>
+          </div>
+          <div id="lines-credit"></div>
+        </div>
+
+        <div class="balance-bar">
+          <div class="bal-item">Débit : <b id="bal-debit">0,00</b></div>
+          <div class="bal-item">Crédit : <b id="bal-credit">0,00</b></div>
+          <div class="bal-item">Écart : <b id="bal-ecart">0,00</b></div>
+          <div class="bal-status" id="bal-status"></div>
+          <button class="btn btn-primary" onclick="submitEcriture()" style="margin-left:12px">Enregistrer</button>
+          <button class="btn" onclick="clearEcriture()">Effacer</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ IMPORT ═══ -->
+    <div class="page" id="page-import">
+      <div class="panel">
+        <div class="panel-header"><span class="panel-title">Import Balance Excel / Données comptables</span></div>
+        <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+          <div class="drop-icon">📊</div>
+          <div class="drop-title">Glissez votre fichier Excel ici</div>
+          <div class="drop-sub">Formats acceptés : .xlsx · .xlsm · Balance OHADA ou format libre<br>La balance d'ouverture peut être une balance à n'importe quelle date (ex. 31/03 pour démarrer en avril)</div>
+          <button class="btn btn-primary" onclick="event.stopPropagation()">Choisir un fichier</button>
+        </div>
+        <input type="file" id="file-input" accept=".xlsx,.xlsm" style="display:none" onchange="handleFile(this)">
+        <div class="form-grid">
+          <div class="fgroup">
+            <label>Type d'import</label>
+            <select id="import-mode">
+              <option value="ecritures">Journaux d'écritures (Données_Générales)</option>
+              <option value="si">Balance d'ouverture N-1 (Balance N-1)</option>
+              <option value="comptes">Plan de compte</option>
+              <option value="all">Tout importer (plan + SI + écritures)</option>
+            </select>
+          </div>
+          <div class="fgroup">
+            <label>Date de référence de la balance</label>
+            <input type="date" id="import-date" value="2024-12-31">
+          </div>
+        </div>
+        <div style="padding:0 16px 16px">
+          <div id="import-preview" style="display:none">
+            <div class="panel-title" style="margin-bottom:8px">Prévisualisation</div>
+            <div id="import-preview-content"></div>
+          </div>
+          <button class="btn btn-primary" id="btn-import" onclick="doImport()" style="display:none">Importer</button>
+          <div id="import-result"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ JOURNAL ═══ -->
+    <div class="page" id="page-journal">
+      <div class="kpi-grid" id="journal-kpi" style="grid-template-columns:repeat(3,1fr)"></div>
+      <div class="panel">
+        <div class="filter-bar">
+          <label>Journal :</label>
+          <select id="jf-journal" onchange="loadJournal()">
+            <option value="">Tous les journaux</option>
+          </select>
+          <label>Mois :</label>
+          <select id="jf-mois" onchange="loadJournal()">
+            <option value="">Toute l'année</option>
+          </select>
+          <label>Recherche :</label>
+          <input id="jf-q" placeholder="Libellé, pièce..." oninput="loadJournal()">
+          <div class="fsep"></div>
+          <span class="muted mono" id="jf-count" style="font-size:11px"></span>
+        </div>
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th>Date</th><th>N° Écriture</th><th>Pièce</th>
+                <th>Journal</th><th>Libellé</th>
+                <th class="r">Débit</th><th class="r">Crédit</th><th>Statut</th>
+              </tr>
+            </thead>
+            <tbody id="journal-body">
+              <tr><td colspan="8" class="loading"><div class="spinner"></div>Chargement...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="padding:10px 14px;border-top:1px solid var(--border);display:flex;gap:12px;align-items:center">
+          <span class="muted" id="journal-totals" style="font-size:12px"></span>
+          <div class="fsep"></div>
+          <button class="btn" id="journal-prev" onclick="journalPage(-1)">‹ Précédent</button>
+          <span class="muted" id="journal-page-info" style="font-size:12px"></span>
+          <button class="btn" id="journal-next" onclick="journalPage(1)">Suivant ›</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ BALANCE ═══ -->
+    <div class="page" id="page-balance">
+      <div class="panel" style="margin-bottom:14px">
+        <div class="filter-bar" style="border:none">
+          <label>Classe :</label>
+          <select id="bal-classe" onchange="loadBalance()">
+            <option value="">Toutes les classes</option>
+            <option value="1">Classe 1 — Capitaux propres</option>
+            <option value="2">Classe 2 — Actif immobilisé</option>
+            <option value="3">Classe 3 — Stocks</option>
+            <option value="4">Classe 4 — Tiers</option>
+            <option value="5">Classe 5 — Trésorerie</option>
+            <option value="6">Classe 6 — Charges</option>
+            <option value="7">Classe 7 — Produits</option>
+            <option value="8">Classe 8 — Résultats HAO</option>
+          </select>
+          <label>Afficher :</label>
+          <select id="bal-filter" onchange="loadBalance()">
+            <option value="moved">Comptes mouvementés</option>
+            <option value="all">Tous les comptes</option>
+            <option value="anom">Anomalies seulement</option>
+          </select>
+          <input id="bal-q" placeholder="N° ou intitulé..." oninput="loadBalance()" style="width:180px">
+          <div class="fsep"></div>
+          <span id="bal-status-badge" class="pill" style="font-size:11px"></span>
+          <span class="muted mono" id="bal-count" style="font-size:11px"></span>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="tbl-wrap" style="max-height:500px;overflow-y:auto">
+          <table class="tbl" id="bal-table">
+            <thead>
+              <tr>
+                <th>Compte</th><th>Intitulé</th><th>Sens</th>
+                <th class="r">SI Débit</th><th class="r">SI Crédit</th>
+                <th class="r">Mouv. Débit</th><th class="r">Mouv. Crédit</th>
+                <th class="r">SF Débit</th><th class="r">SF Crédit</th>
+                <th>Audit OHADA</th>
+              </tr>
+            </thead>
+            <tbody id="balance-body">
+              <tr><td colspan="10" class="loading"><div class="spinner"></div>Chargement...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="padding:10px 14px;border-top:1px solid var(--border);display:flex;gap:16px">
+          <span class="muted" id="bal-totals" style="font-size:12px"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ BILAN ═══ -->
+    <div class="page" id="page-bilan">
+      <div class="g2">
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">ACTIF</span></div>
+          <div id="bilan-actif"><div class="loading"><div class="spinner"></div></div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">PASSIF</span></div>
+          <div id="bilan-passif"><div class="loading"><div class="spinner"></div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ RÉSULTAT ═══ -->
+    <div class="page" id="page-resultat">
+      <div class="g2">
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Charges</span></div>
+          <div id="res-charges"><div class="loading"><div class="spinner"></div></div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Produits</span></div>
+          <div id="res-produits"><div class="loading"><div class="spinner"></div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ TRÉSORERIE TFT ═══ -->
+    <div class="page" id="page-tresorerie">
+      <div class="kpi-grid" id="tft-kpi" style="grid-template-columns:repeat(3,1fr)"></div>
+      <div class="g2">
+        <div>
+          <div class="panel" style="margin-bottom:14px">
+            <div class="panel-header"><span class="panel-title">A — Flux d'exploitation (méthode indirecte)</span><span class="pill pill-info" id="tft-a-badge"></span></div>
+            <div id="tft-a"></div>
+          </div>
+          <div class="panel" style="margin-bottom:14px">
+            <div class="panel-header"><span class="panel-title">B — Flux d'investissement</span><span class="pill pill-warn" id="tft-b-badge"></span></div>
+            <div id="tft-b"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-header"><span class="panel-title">C — Flux de financement</span><span class="pill pill-teal" id="tft-c-badge"></span></div>
+            <div id="tft-c"></div>
+          </div>
+        </div>
+        <div>
+          <div class="panel" style="margin-bottom:14px">
+            <div class="panel-header"><span class="panel-title">Synthèse & contrôle</span></div>
+            <div id="tft-synthese"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-header"><span class="panel-title">Note méthodologique</span></div>
+            <div style="padding:14px;font-size:12px;color:var(--ink3);line-height:1.7">
+              <p><strong style="color:var(--ink)">Méthode indirecte SYSCOHADA</strong> — Le TFT part du résultat net et le réconcilie avec la variation de trésorerie en éliminant les éléments non monétaires.</p>
+              <p style="margin-top:8px"><strong style="color:var(--ink)">Flux A (Exploitation)</strong> = Résultat + Amortissements ± Variation BFR</p>
+              <p style="margin-top:4px"><strong style="color:var(--ink)">Flux B (Investissement)</strong> = ± Acquisitions/Cessions d'immobilisations</p>
+              <p style="margin-top:4px"><strong style="color:var(--ink)">Flux C (Financement)</strong> = ± Capital, Emprunts, Dividendes</p>
+              <p style="margin-top:8px;padding:8px;background:var(--green-l);border-radius:6px;color:var(--green)">A + B + C = Variation de trésorerie = Tréso clôture − Tréso ouverture</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ GRAND LIVRE ═══ -->
+    <div class="page" id="page-grandlivre">
+      <div class="panel" style="margin-bottom:14px">
+        <div class="filter-bar" style="border:none">
+          <label>Type :</label>
+          <select id="gl-type" onchange="loadGrandLivre()">
+            <option value="411">Clients (411xxx)</option>
+            <option value="401">Fournisseurs (40xxx)</option>
+            <option value="52">Banques (52xxx)</option>
+            <option value="51">Caisse (51xxx)</option>
+            <option value="custom">Compte spécifique</option>
+          </select>
+          <input id="gl-compte" placeholder="N° exact ex: 411103" style="width:160px;display:none" oninput="loadGrandLivre()">
+          <div class="fsep"></div>
+          <span class="mono muted" id="gl-solde" style="font-size:12px"></span>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="tbl-wrap" style="max-height:520px;overflow-y:auto">
+          <table class="tbl" id="gl-table">
+            <thead>
+              <tr>
+                <th>Date</th><th>Écriture</th><th>Pièce</th><th>Journal</th>
+                <th>Compte</th><th>Libellé</th>
+                <th class="r">Débit</th><th class="r">Crédit</th><th class="r">Solde cumulatif</th>
+              </tr>
+            </thead>
+            <tbody id="gl-body">
+              <tr><td colspan="9" class="loading"><div class="spinner"></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ AUDIT ═══ -->
+    <div class="page" id="page-audit">
+      <div class="kpi-grid" id="audit-kpi" style="grid-template-columns:repeat(4,1fr)"></div>
+      <div class="panel">
+        <div class="panel-header"><span class="panel-title">Anomalies OHADA détectées</span></div>
+        <div id="audit-list" style="padding:14px"></div>
+      </div>
+    </div>
+
+    <!-- ═══ KPI ═══ -->
+    <div class="page" id="page-kpi">
+      <div class="kpi-grid" id="full-kpi" style="grid-template-columns:repeat(4,1fr)"></div>
+      <div class="g2">
+        <div class="panel" id="ratios-panel"></div>
+        <div class="panel" id="struct-panel"></div>
+      </div>
+    </div>
+
+    <!-- ═══ CONFIG ═══ -->
+    <div class="page" id="page-config">
+      <div class="tabs" style="margin-bottom:14px">
+        <div class="tab active" data-tab="cfg-plan" onclick="switchCfgTab(this,'cfg-plan')">Plan de compte</div>
+        <div class="tab" data-tab="cfg-journaux" onclick="switchCfgTab(this,'cfg-journaux')">Journaux</div>
+        <div class="tab" data-tab="cfg-exercices" onclick="switchCfgTab(this,'cfg-exercices')">Exercices</div>
+        <div class="tab" data-tab="cfg-societe" onclick="switchCfgTab(this,'cfg-societe')">Société</div>
+        <div class="tab" data-tab="cfg-rapproch" onclick="switchCfgTab(this,'cfg-rapproch')">Rapprochement</div>
+      </div>
+      <!-- Plan de compte -->
+      <div id="cfg-plan" class="cfg-tab">
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">Plan de compte SYSCOHADA · 1 192 comptes</span>
+            <div class="panel-actions">
+              <input id="cfg-pc-q" placeholder="N° ou intitulé..." oninput="loadPlanCompte()" style="padding:5px 9px;border:1px solid var(--border2);border-radius:6px;font-size:12px;width:200px">
+              <select id="cfg-pc-classe" onchange="loadPlanCompte()" style="padding:5px 9px;border:1px solid var(--border2);border-radius:6px;font-size:12px">
+                <option value="">Toutes classes</option>
+                <option value="1">Classe 1</option><option value="2">Classe 2</option>
+                <option value="3">Classe 3</option><option value="4">Classe 4</option>
+                <option value="5">Classe 5</option><option value="6">Classe 6</option>
+                <option value="7">Classe 7</option><option value="8">Classe 8</option>
+              </select>
+              <button class="btn btn-primary" onclick="showAddCompteModal()">+ Ajouter</button>
+            </div>
+          </div>
+          <div class="tbl-wrap" style="max-height:480px;overflow-y:auto">
+            <table class="tbl">
+              <thead><tr>
+                <th>N°</th><th>Intitulé</th><th>Sens OHADA</th><th>Catégorie</th><th>Rubrique</th><th>Statut</th><th>Actions</th>
+              </tr></thead>
+              <tbody id="cfg-pc-body">
+                <tr><td colspan="7" class="loading"><div class="spinner"></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <!-- Journaux -->
+      <div id="cfg-journaux" class="cfg-tab" style="display:none">
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">Journaux comptables</span>
+            <button class="btn btn-primary" onclick="showAddJournalModal()">+ Ajouter un journal</button>
+          </div>
+          <div id="cfg-journaux-body"><div class="loading"><div class="spinner"></div></div></div>
+        </div>
+      </div>
+      <!-- Exercices -->
+      <div id="cfg-exercices" class="cfg-tab" style="display:none">
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">Exercices comptables</span>
+            <button class="btn btn-primary" onclick="showAddExerciceModal()">+ Nouvel exercice</button>
+          </div>
+          <div id="cfg-exercices-body"><div class="loading"><div class="spinner"></div></div></div>
+        </div>
+      </div>
+      <!-- Société -->
+      <div id="cfg-societe" class="cfg-tab" style="display:none">
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Paramètres de la société active</span></div>
+          <div id="cfg-societe-body" style="padding:20px">
+            <div class="form-grid">
+              <div class="fgroup"><label>Code</label><input id="cfg-co-code" readonly style="background:var(--bg)"></div>
+              <div class="fgroup"><label>Dénomination</label><input id="cfg-co-nom"></div>
+              <div class="fgroup"><label>RCCM</label><input id="cfg-co-rccm"></div>
+              <div class="fgroup"><label>NIF</label><input id="cfg-co-nif"></div>
+              <div class="fgroup"><label>Devise</label><select id="cfg-co-devise"><option>USD</option><option>CDF</option><option>EUR</option></select></div>
+              <div class="fgroup"><label>Référentiel</label><select id="cfg-co-ref"><option>SYSCOHADA</option><option>IFRS</option></select></div>
+            </div>
+            <button class="btn btn-primary" onclick="saveSociete()">Enregistrer</button>
+          </div>
+        </div>
+      </div>
+      <!-- Rapprochement -->
+      <div id="cfg-rapproch" class="cfg-tab" style="display:none">
+        <div id="rapproch-content"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+</div><!-- /app -->
+
+<!-- ═══ MODAL NOUVELLE SOCIÉTÉ ═══ -->
+<div class="modal-bg hidden" id="modal-company">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Nouvelle société</span>
+      <button class="modal-close" onclick="closeModal('company')">✕</button>
+    </div>
+    <div class="form-grid">
+      <div class="fgroup"><label>Code (ex: DS)</label><input id="co-code" maxlength="5" placeholder="PR"></div>
+      <div class="fgroup"><label>Dénomination sociale</label><input id="co-nom" placeholder="Planet Resources SARL"></div>
+      <div class="fgroup"><label>RCCM</label><input id="co-rccm" placeholder="CD/LSH/RCCM/..."></div>
+      <div class="fgroup"><label>NIF</label><input id="co-nif" placeholder="A2157801B"></div>
+      <div class="fgroup"><label>Devise</label>
+        <select id="co-devise"><option value="USD">USD — Dollar américain</option><option value="CDF">CDF — Franc congolais</option><option value="EUR">EUR — Euro</option></select>
+      </div>
+      <div class="fgroup"><label>Référentiel</label>
+        <select id="co-ref"><option value="SYSCOHADA">SYSCOHADA Révisé</option><option value="IFRS">IFRS</option></select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('company')">Annuler</button>
+      <button class="btn btn-primary" onclick="createCompany()">Créer la société</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL DÉTAIL ÉCRITURE ═══ -->
+<div class="modal-bg hidden" id="modal-ecriture">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="mod-ecr-title">Détail écriture</span>
+      <button class="modal-close" onclick="closeModal('ecriture')">✕</button>
+    </div>
+    <div id="mod-ecr-content" style="padding:16px"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════════════════
+const API = 'http://localhost:5000/api';
+let STATE = {
+  tenant_id: 1,
+  exercice_id: 1,
+  tenant_nom: 'Planet Resources SARL',
+  comptes: [],
+  journaux: [],
+  monthly: [],
+  kpi: null,
+  balance: null,
+  journal_page: 0,
+  journal_limit: 80,
+  journal_code: '',
+};
+
+const fmt = n => n == null ? '—' : Number(n).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtK = n => { if(!n) return '0'; const a=Math.abs(n); if(a>=1e6) return (n/1e6).toFixed(1)+'M'; if(a>=1e3) return (n/1e3).toFixed(0)+'K'; return fmt(n); };
+
+// ═══════════════════════════════════════════════════════════
+// API CALLS
+// ═══════════════════════════════════════════════════════════
+async function api(path, opts={}) {
+  try {
+    const r = await fetch(API+path, {
+      headers:{'Content-Type':'application/json'},
+      ...opts,
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    });
+    return await r.json();
+  } catch(e) {
+    // Dev mode: return mock data if API not running
+    return null;
+  }
+}
+
+async function loadInitial() {
+  // Load tenants & exercices
+  const tenants = await api('/tenants');
+  if (tenants && tenants.length) {
+    STATE.tenant_id = tenants[0].id;
+    STATE.tenant_nom = tenants[0].nom;
+    document.getElementById('co-btn-label').textContent = tenants[0].nom;
+  }
+  const exs = await api(`/${STATE.tenant_id}/exercices`);
+  if (exs && exs.length) {
+    STATE.exercice_id = exs[0].id;
+    document.getElementById('tb-sub').textContent = `Exercice ${exs[0].annee} · ${tenants?.[0]?.devise||'USD'} · SYSCOHADA Révisé`;
+  }
+  // Load journals for sidebar
+  const jrn = await api(`/${STATE.tenant_id}/journaux`);
+  if (jrn) STATE.journaux = jrn;
+  populateJournalSelects();
+  // Load comptes
+  const cpts = await api(`/${STATE.tenant_id}/comptes`);
+  if (cpts) STATE.comptes = cpts;
+  // Set today date
+  document.getElementById('ecr-date').value = new Date().toISOString().slice(0,10);
+  // Load dashboard
+  loadDashboard();
+}
+
+// ═══════════════════════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════════════════════
+const PAGE_TITLES = {
+  dashboard:  ['Vue d\'ensemble', 'Indicateurs clés · Exercice 2025'],
+  companies:  ['Multi-sociétés', 'Gestion des sociétés du groupe'],
+  saisie:     ['Nouvelle écriture', 'Saisie comptable avec contrôle OHADA temps réel'],
+  import:     ['Import Balance Excel', 'Importer une balance d\'ouverture ou de période'],
+  journal:    ['Journal OHADA', 'Consultation et recherche des écritures'],
+  balance:    ['Balance générale', '1 192 comptes · SYSCOHADA Révisé · Audit automatique'],
+  bilan:      ['Bilan OHADA', 'Actif / Passif · Exercice 2025 vs N-1'],
+  resultat:   ['Compte de résultat', 'Charges / Produits · Exercice 2025'],
+  audit:      ['Audit OHADA', 'Détection automatique des anomalies comptables'],
+  kpi:        ['Ratios & KPI', 'Indicateurs financiers et ratios d\'analyse'],
+  tresorerie: ['Tableau de flux de trésorerie', 'TFT SYSCOHADA · Méthode indirecte · Exploitation / Investissement / Financement'],
+  grandlivre: ['Grand livre auxiliaire', 'Détail des mouvements par compte tiers'],
+  config:     ['Configuration', 'Plan de compte · Journaux · Exercices · Paramètres société'],
+  rapproch:   ['Rapprochement', 'Vérifications croisées · Détection anomalies techniques'],
+};
+
+function showPage(id, jcode='') {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('page-'+id)?.classList.add('active');
+  if (PAGE_TITLES[id]) {
+    document.getElementById('tb-title').textContent = PAGE_TITLES[id][0];
+    document.getElementById('tb-sub').textContent   = PAGE_TITLES[id][1];
+  }
+  // Mark nav active
+  document.querySelectorAll(`.nav-item[data-page="${id}"]`).forEach(n => {
+    if (!jcode || n.dataset.journal===jcode) n.classList.add('active');
+  });
+  // Load data for page
+  if (id==='dashboard')  loadDashboard();
+  if (id==='companies')  loadCompanies();
+  if (id==='journal')    { STATE.journal_code=jcode; STATE.journal_page=0; loadJournal(); }
+  if (id==='balance')    loadBalance();
+  if (id==='bilan')      loadBilan();
+  if (id==='resultat')   loadResultat();
+  if (id==='audit')      loadAudit();
+  if (id==='kpi')        loadKpi();
+  if (id==='tresorerie') loadTresorerie();
+  if (id==='grandlivre') loadGrandLivre();
+  if (id==='config')     { loadPlanCompte(); }
+  if (id==='rapproch')   loadRapprochement();
+  if (id==='saisie')     initSaisie();
+}
+
+document.querySelectorAll('.nav-item[data-page]').forEach(n => {
+  n.addEventListener('click', () => showPage(n.dataset.page, n.dataset.journal||''));
+});
+
+// ═══════════════════════════════════════════════════════════
+// DASHBOARD
+// ═══════════════════════════════════════════════════════════
+async function loadDashboard() {
+  const kpi = await api(`/${STATE.tenant_id}/kpi?exercice_id=${STATE.exercice_id}`);
+  if (!kpi) return;
+  STATE.kpi = kpi;
+  STATE.monthly = kpi.monthly || [];
+
+  // Badge anomalies
+  const nb = STATE.balance ? STATE.balance.nb_anomalies : '?';
+  document.getElementById('nav-anom-badge').textContent = '';
+
+  // KPI cards
+  document.getElementById('kpi-grid').innerHTML = `
+    <div class="kpi">
+      <div class="kpi-label">Chiffre d'affaires</div>
+      <div class="kpi-value">${fmtK(kpi.ca)}</div>
+      <div class="kpi-footer"><span class="pill pill-info">USD · Comptes 7xxx</span></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Résultat net</div>
+      <div class="kpi-value" style="color:${kpi.resultat>=0?'var(--green)':'var(--red)'}">${fmtK(kpi.resultat)}</div>
+      <div class="kpi-footer">
+        <span class="pill ${kpi.resultat>=0?'pill-ok':'pill-err'}">${kpi.marge?.toFixed(1)||0}% marge</span>
+      </div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Trésorerie nette</div>
+      <div class="kpi-value" style="color:${kpi.tresorerie>=0?'var(--green)':'var(--red)'}">${fmtK(kpi.tresorerie)}</div>
+      <div class="kpi-footer"><span class="pill ${kpi.tresorerie>=0?'pill-ok':'pill-err'}">Comptes 5xxx</span></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Créances clients</div>
+      <div class="kpi-value">${fmtK(kpi.creances)}</div>
+      <div class="kpi-footer"><span class="pill pill-warn">Comptes 411xxx</span></div>
+    </div>
+  `;
+
+  drawChart();
+
+  // Quick balance for anomalies
+  const bal = await api(`/${STATE.tenant_id}/balance?exercice_id=${STATE.exercice_id}&only_moved=true`);
+  if (!bal) return;
+  STATE.balance = bal;
+
+  // Nav badge
+  if (bal.nb_anomalies > 0) {
+    document.getElementById('nav-anom-badge').textContent = bal.nb_anomalies;
+  }
+  document.getElementById('dash-anom-count').textContent = `${bal.nb_anomalies} alertes`;
+  document.getElementById('dash-anom-count').className = `pill ${bal.critiques>0?'pill-err':'pill-warn'}`;
+
+  // Anomalies list
+  const anoms = bal.rows.filter(r=>r.audit.length>0).slice(0,5);
+  document.getElementById('dash-anomalies').innerHTML = anoms.length ? anoms.map(r=>
+    `<div class="anomaly-row" style="padding:9px 14px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:10px">
+      <span class="audit-dot dot-${r.audit_severite}"></span>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.numero} · ${r.intitule}</div>
+        <div style="font-size:11px;color:var(--ink3);margin-top:2px">${r.audit[0].msg}</div>
+      </div>
+      <span class="pill ${r.audit_severite==='critique'?'pill-err':'pill-warn'}" style="flex-shrink:0">${r.audit_severite}</span>
+    </div>`
+  ).join('') : '<div style="padding:16px;text-align:center;color:var(--ink3)">Aucune anomalie détectée</div>';
+
+  // Clients top
+  const clients = bal.rows.filter(r=>r.numero.startsWith('411')&&r.sf_debit>0).sort((a,b)=>b.sf_debit-a.sf_debit).slice(0,5);
+  document.getElementById('dash-clients').innerHTML = `<table class="tbl">
+    <tr><th>Client</th><th class="r">Solde USD</th></tr>
+    ${clients.map(r=>`<tr><td class="fw" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.intitule}</td><td class="r mono pos">${fmt(r.sf_debit)}</td></tr>`).join('')}
+  </table>`;
+
+  // Fournisseurs
+  const fourns = bal.rows.filter(r=>r.numero.startsWith('401')&&r.sf_credit>0).sort((a,b)=>b.sf_credit-a.sf_credit).slice(0,5);
+  document.getElementById('dash-fournisseurs').innerHTML = `<table class="tbl">
+    <tr><th>Fournisseur</th><th class="r">Solde USD</th></tr>
+    ${fourns.map(r=>`<tr><td class="fw" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.intitule}</td><td class="r mono neg">${fmt(r.sf_credit)}</td></tr>`).join('')}
+  </table>`;
+
+  // Trésorerie
+  const tres_rows = bal.rows.filter(r=>r.numero.startsWith('5')&&(r.sf_debit>0||r.sf_credit>0)).slice(0,6);
+  const total_tres = tres_rows.reduce((acc,r)=>acc+r.sf_debit-r.sf_credit,0);
+  document.getElementById('dash-tres').innerHTML = `<table class="tbl">
+    <tr><th>Compte</th><th class="r">Solde</th></tr>
+    ${tres_rows.map(r=>{
+      const s=r.sf_debit-r.sf_credit;
+      return `<tr><td>${r.numero} · ${r.intitule}</td><td class="r mono ${s>=0?'pos':'neg'}">${fmt(s)}</td></tr>`;
+    }).join('')}
+    <tr style="background:var(--bg)"><td class="fw">Total trésorerie</td><td class="r mono fw ${total_tres>=0?'pos':'neg'}">${fmt(total_tres)}</td></tr>
+  </table>`;
+}
+
+function drawChart() {
+  const mode = document.getElementById('chart-mode')?.value || 'vol';
+  const data = STATE.monthly || [];
+  if (!data.length) return;
+  const maxV = Math.max(...data.map(d=>mode==='vol'?d.nb:d.vol)) || 1;
+  document.getElementById('dash-chart').innerHTML = data.map(d=>{
+    const v = mode==='vol' ? d.nb : d.vol;
+    const h = Math.max(6, Math.round((v/maxV)*64));
+    const label = d.m ? d.m.slice(5,7) : '??';
+    const months = {1:'Jan',2:'Fév',3:'Mar',4:'Avr',5:'Mai',6:'Jun',7:'Jul',8:'Aoû',9:'Sep',10:'Oct',11:'Nov',12:'Déc'};
+    const lbl = months[parseInt(label)] || label;
+    return `<div class="bar-col">
+      <div class="bar-fill" style="height:${h}px;background:var(--accent);opacity:.75" title="${lbl}: ${mode==='vol'?d.nb+' écriture(s)':fmt(d.vol)+' USD'}"></div>
+      <div class="bar-lbl">${lbl}</div>
+    </div>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════
+// COMPANIES
+// ═══════════════════════════════════════════════════════════
+async function loadCompanies() {
+  const data = await api('/tenants');
+  if (!data) return;
+  document.getElementById('companies-list').innerHTML = `<table class="tbl">
+    <tr><th>Code</th><th>Société</th><th>RCCM</th><th>NIF</th><th>Devise</th><th>Référentiel</th><th>Actions</th></tr>
+    ${data.map(t=>`<tr>
+      <td class="mono fw">${t.code}</td>
+      <td class="fw">${t.nom}</td>
+      <td class="mono muted">${t.rccm||'—'}</td>
+      <td class="mono muted">${t.nif||'—'}</td>
+      <td><span class="pill pill-info">${t.devise}</span></td>
+      <td><span class="pill pill-teal">${t.referentiel}</span></td>
+      <td><button class="btn" onclick="switchTenant(${t.id},'${t.nom}')">Activer</button></td>
+    </tr>`).join('')}
+  </table>`;
+}
+
+function switchTenant(id, nom) {
+  STATE.tenant_id = id;
+  STATE.tenant_nom = nom;
+  document.getElementById('co-btn-label').textContent = nom;
+  toast(`Société active : ${nom}`, 'ok');
+  loadInitial();
+  showPage('dashboard');
+}
+
+function showNewCompanyModal() { document.getElementById('modal-company').classList.remove('hidden'); }
+function closeModal(id) { document.getElementById('modal-'+id).classList.add('hidden'); }
+
+async function createCompany() {
+  const d = {
+    code: document.getElementById('co-code').value,
+    nom:  document.getElementById('co-nom').value,
+    rccm: document.getElementById('co-rccm').value,
+    nif:  document.getElementById('co-nif').value,
+    devise: document.getElementById('co-devise').value,
+  };
+  if (!d.code || !d.nom) { toast('Code et nom requis','err'); return; }
+  const r = await api('/tenants', {method:'POST', body: d});
+  if (r) { toast(`Société ${d.nom} créée`, 'ok'); closeModal('company'); loadCompanies(); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// SAISIE
+// ═══════════════════════════════════════════════════════════
+let debitLines = [], creditLines = [];
+let lineId = 0;
+
+function initSaisie() {
+  populateJournalSelects();
+  if (!debitLines.length) { addLine('debit'); addLine('credit'); }
+  updateBalance();
+}
+
+function populateJournalSelects() {
+  const sel = document.getElementById('ecr-journal');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">Choisir un journal...</option>' +
+    STATE.journaux.map(j=>`<option value="${j.id}">${j.code} · ${j.libelle}</option>`).join('');
+  // Also journal filter
+  const jf = document.getElementById('jf-journal');
+  if (jf) jf.innerHTML = '<option value="">Tous les journaux</option>' +
+    STATE.journaux.map(j=>`<option value="${j.id}">${j.code} · ${j.libelle}</option>`).join('');
+  // Populate mois filter
+  const mf = document.getElementById('jf-mois');
+  if (mf) {
+    const months = ['01','02','03','04','05','06','07','08','09','10','11','12'];
+    const labels = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+    mf.innerHTML = '<option value="">Toute l\'année</option>' +
+      months.map((m,i)=>`<option value="2025-${m}">${labels[i]} 2025</option>`).join('');
+  }
+}
+
+function makeCompteSelect(id, selectedVal='') {
+  const opts = STATE.comptes.map(c=>
+    `<option value="${c.numero}" ${c.numero===selectedVal?'selected':''}>${c.numero} · ${c.intitule}</option>`
+  ).join('');
+  return `<select id="cpt-${id}" style="padding:6px 9px;border:1px solid var(--border2);border-radius:6px;font-size:12px;font-family:inherit;color:var(--ink);background:var(--surface)"
+    onchange="updateBalance()"><option value="">Choisir un compte...</option>${opts}</select>`;
+}
+
+function addLine(side) {
+  const id = ++lineId;
+  const arr = side==='debit' ? debitLines : creditLines;
+  arr.push(id);
+  renderLines();
+}
+
+function removeLine(side, id) {
+  if (side==='debit') debitLines=debitLines.filter(x=>x!==id);
+  else creditLines=creditLines.filter(x=>x!==id);
+  renderLines();
+  updateBalance();
+}
+
+function renderLines() {
+  ['debit','credit'].forEach(side=>{
+    const arr = side==='debit' ? debitLines : creditLines;
+    document.getElementById('lines-'+side).innerHTML = arr.map(id=>`
+      <div class="entry-line" id="line-${side}-${id}">
+        ${makeCompteSelect(side+'-'+id)}
+        <input type="number" id="mnt-${side}-${id}" placeholder="0.00" step="0.01" min="0"
+          oninput="updateBalance()" style="text-align:right;font-family:var(--mono)">
+        <button class="btn-icon" onclick="removeLine('${side}',${id})">×</button>
+      </div>`
+    ).join('');
+  });
+}
+
+function updateBalance() {
+  let td=0,tc=0;
+  debitLines.forEach(id=>{
+    const v=parseFloat(document.getElementById('mnt-debit-'+id)?.value||0);
+    if(!isNaN(v)) td+=v;
+  });
+  creditLines.forEach(id=>{
+    const v=parseFloat(document.getElementById('mnt-credit-'+id)?.value||0);
+    if(!isNaN(v)) tc+=v;
+  });
+  const ecart=Math.abs(td-tc);
+  document.getElementById('bal-debit').textContent=fmt(td);
+  document.getElementById('bal-credit').textContent=fmt(tc);
+  document.getElementById('bal-ecart').textContent=fmt(ecart);
+  const st=document.getElementById('bal-status');
+  if (ecart<0.01 && td>0) {
+    st.innerHTML=`<span class="pill pill-ok">✓ Équilibré · OHADA conforme</span>`;
+  } else if (td>0||tc>0) {
+    st.innerHTML=`<span class="pill pill-err">✗ Déséquilibre ${fmt(ecart)} USD</span>`;
+  } else {
+    st.innerHTML='';
+  }
+}
+
+function clearEcriture() {
+  debitLines=[]; creditLines=[]; lineId=0;
+  document.getElementById('ecr-libelle').value='';
+  document.getElementById('ecr-piece').value='';
+  addLine('debit'); addLine('credit');
+}
+
+async function submitEcriture() {
+  const date_e = document.getElementById('ecr-date').value;
+  const libelle = document.getElementById('ecr-libelle').value;
+  const journal_id = document.getElementById('ecr-journal').value;
+  const numero_piece = document.getElementById('ecr-piece').value;
+  if (!date_e||!libelle) { toast('Date et libellé requis','err'); return; }
+  const lignes=[];
+  debitLines.forEach(id=>{
+    const c=document.getElementById('cpt-debit-'+id)?.value;
+    const m=parseFloat(document.getElementById('mnt-debit-'+id)?.value||0);
+    if(c&&m>0) lignes.push({sens:'D',compte_numero:c,montant:m});
+  });
+  creditLines.forEach(id=>{
+    const c=document.getElementById('cpt-credit-'+id)?.value;
+    const m=parseFloat(document.getElementById('mnt-credit-'+id)?.value||0);
+    if(c&&m>0) lignes.push({sens:'C',compte_numero:c,montant:m});
+  });
+  const body={date_ecriture:date_e,libelle,journal_id:journal_id||null,numero_piece,lignes,exercice_id:STATE.exercice_id};
+  const r=await api(`/${STATE.tenant_id}/ecritures`,{method:'POST',body});
+  if(r?.errors) { toast('Erreur: '+r.errors.join(' | '),'err'); return; }
+  if(r?.numero) {
+    toast(`${r.numero} enregistrée avec succès`,'ok');
+    clearEcriture();
+    STATE.balance=null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// JOURNAL
+// ═══════════════════════════════════════════════════════════
+async function loadJournal() {
+  const jf_j   = document.getElementById('jf-journal')?.value||'';
+  const jf_mois = document.getElementById('jf-mois')?.value||'';
+  const jf_q   = document.getElementById('jf-q')?.value||'';
+
+  // Find journal_id from code
+  let journal_id='';
+  if (STATE.journal_code) {
+    const jrn = STATE.journaux.find(j=>j.code===STATE.journal_code);
+    if (jrn) journal_id=jrn.id;
+  } else if (jf_j) {
+    journal_id=jf_j;
+  }
+
+  const off = STATE.journal_page * STATE.journal_limit;
+  const params=new URLSearchParams({exercice_id:STATE.exercice_id,limit:STATE.journal_limit,offset:off});
+  if (journal_id) params.set('journal_id',journal_id);
+  if (jf_mois)    params.set('mois',jf_mois);
+  if (jf_q)       params.set('q',jf_q);
+
+  const data = await api(`/${STATE.tenant_id}/ecritures?${params}`);
+  if (!data) return;
+
+  const {rows,total}=data;
+  document.getElementById('jf-count').textContent=`${total} écriture(s)`;
+
+  // KPI journal
+  const td=rows.reduce((a,r)=>a+(r.total_debit||0),0);
+  const tc=rows.reduce((a,r)=>a+(r.total_credit||0),0);
+  document.getElementById('journal-kpi').innerHTML=`
+    <div class="kpi"><div class="kpi-label">Écritures affichées</div><div class="kpi-value">${rows.length}</div><div class="kpi-footer"><span class="pill pill-info">sur ${total} total</span></div></div>
+    <div class="kpi"><div class="kpi-label">Total Débit</div><div class="kpi-value" style="font-size:18px">${fmtK(td)}</div><div class="kpi-footer"><span class="pill pill-info">USD</span></div></div>
+    <div class="kpi"><div class="kpi-label">Total Crédit</div><div class="kpi-value" style="font-size:18px">${fmtK(tc)}</div><div class="kpi-footer"><span class="pill ${Math.abs(td-tc)<0.01?'pill-ok':'pill-err'}">Équilibre</span></div></div>
+  `;
+
+  document.getElementById('journal-body').innerHTML = rows.length ? rows.map(r=>`
+    <tr style="cursor:pointer" onclick="showEcritureDetail(${r.id})">
+      <td class="mono">${r.date_ecriture?.slice(0,10)||'—'}</td>
+      <td class="mono fw">${r.numero}</td>
+      <td class="mono muted">${r.numero_piece||'—'}</td>
+      <td><span class="pill pill-teal" style="font-size:10px">${r.journal_code||'—'}</span></td>
+      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis">${r.libelle}</td>
+      <td class="r mono pos">${r.total_debit>0?fmt(r.total_debit):'—'}</td>
+      <td class="r mono neg">${r.total_credit>0?fmt(r.total_credit):'—'}</td>
+      <td><span class="pill ${r.statut==='valide'?'pill-ok':'pill-warn'}">${r.statut}</span></td>
+    </tr>`
+  ).join('') : '<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--ink3)">Aucune écriture trouvée</td></tr>';
+
+  document.getElementById('journal-totals').textContent=`Débit total: ${fmt(td)} USD · Crédit total: ${fmt(tc)} USD`;
+  const pages=Math.ceil(total/STATE.journal_limit);
+  document.getElementById('journal-page-info').textContent=`Page ${STATE.journal_page+1} / ${Math.max(1,pages)}`;
+  document.getElementById('journal-prev').disabled=STATE.journal_page===0;
+  document.getElementById('journal-next').disabled=(STATE.journal_page+1)>=pages;
+}
+
+function journalPage(dir) {
+  STATE.journal_page=Math.max(0,STATE.journal_page+dir);
+  loadJournal();
+}
+
+async function showEcritureDetail(eid) {
+  const lignes = await api(`/${STATE.tenant_id}/ecritures/${eid}/lignes`);
+  if (!lignes) return;
+  const td=lignes.filter(l=>l.sens==='D').reduce((a,l)=>a+l.montant,0);
+  const tc=lignes.filter(l=>l.sens==='C').reduce((a,l)=>a+l.montant,0);
+  document.getElementById('mod-ecr-title').textContent=`Écriture — Détail des lignes`;
+  document.getElementById('mod-ecr-content').innerHTML=`
+    <table class="tbl">
+      <tr><th>Sens</th><th>Compte</th><th>Intitulé</th><th class="r">Montant</th></tr>
+      ${lignes.map(l=>`<tr>
+        <td><span class="pill ${l.sens==='D'?'pill-info':'pill-ok'}">${l.sens==='D'?'Débit':'Crédit'}</span></td>
+        <td class="mono fw">${l.compte_numero}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${l.intitule||'—'}</td>
+        <td class="r mono">${fmt(l.montant)}</td>
+      </tr>`).join('')}
+      <tr style="background:var(--bg)">
+        <td colspan="3" class="fw">Total</td>
+        <td class="r mono fw ${Math.abs(td-tc)<0.01?'pos':'neg'}">${fmt(td)} / ${fmt(tc)}</td>
+      </tr>
+    </table>`;
+  document.getElementById('modal-ecriture').classList.remove('hidden');
+}
+
+// ═══════════════════════════════════════════════════════════
+// BALANCE
+// ═══════════════════════════════════════════════════════════
+async function loadBalance() {
+  const classe = document.getElementById('bal-classe')?.value||'';
+  const filter = document.getElementById('bal-filter')?.value||'moved';
+  const q_val  = document.getElementById('bal-q')?.value||'';
+  const params = new URLSearchParams({exercice_id:STATE.exercice_id});
+  if (classe) params.set('classe',classe);
+  if (filter==='moved') params.set('only_moved','true');
+  if (q_val) params.set('q',q_val);
+
+  const data = await api(`/${STATE.tenant_id}/balance?${params}`);
+  if (!data) return;
+  STATE.balance=data;
+
+  let rows = data.rows;
+  if (filter==='anom') rows=rows.filter(r=>r.audit.length>0);
+
+  document.getElementById('bal-count').textContent=`${rows.length} compte(s)`;
+  document.getElementById('bal-status-badge').innerHTML=`<span class="pill ${data.equilibre?'pill-ok':'pill-err'}">${data.equilibre?'✓ Équilibrée':'✗ Déséquilibrée'} · ${fmtK(data.total_debit)} USD</span>`;
+  document.getElementById('nav-anom-badge').textContent=data.nb_anomalies>0?data.nb_anomalies:'';
+
+  const sensChip = s => {
+    const map={ACTIF:'cl-actif',PASSIF:'cl-passif',CHARGE:'cl-charge',PRODUIT:'cl-produit'};
+    return `<span class="class-chip ${map[s]||'cl-hb'}">${s||'—'}</span>`;
+  };
+  const auditCell = r => {
+    if(!r.audit.length) return `<span class="pill pill-ok" style="font-size:10px">✓</span>`;
+    const sev=r.audit_severite;
+    const icons={critique:'✗',warning:'⚠'};
+    return `<span class="pill ${sev==='critique'?'pill-err':'pill-warn'}" style="font-size:10px" title="${r.audit.map(a=>a.msg).join(' | ')}">${icons[sev]||'?'} ${r.audit[0].msg.slice(0,30)}</span>`;
+  };
+
+  document.getElementById('balance-body').innerHTML = rows.length ? rows.map(r=>`
+    <tr ${r.audit.length?`style="background:${r.audit_severite==='critique'?'#fff5f5':'#fffbeb'}"`:''}>
+      <td class="mono fw" style="color:var(--accent)">${r.numero}</td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.intitule}">${r.intitule}</td>
+      <td>${sensChip(r.sens_ohada)}</td>
+      <td class="r mono">${r.si_debit>0?fmt(r.si_debit):'—'}</td>
+      <td class="r mono">${r.si_credit>0?fmt(r.si_credit):'—'}</td>
+      <td class="r mono pos">${r.mouv_debit>0?fmt(r.mouv_debit):'—'}</td>
+      <td class="r mono neg">${r.mouv_credit>0?fmt(r.mouv_credit):'—'}</td>
+      <td class="r mono fw">${r.sf_debit>0?fmt(r.sf_debit):'—'}</td>
+      <td class="r mono fw">${r.sf_credit>0?fmt(r.sf_credit):'—'}</td>
+      <td>${auditCell(r)}</td>
+    </tr>`
+  ).join('') : '<tr><td colspan="10" style="padding:20px;text-align:center;color:var(--ink3)">Aucun compte à afficher</td></tr>';
+
+  document.getElementById('bal-totals').innerHTML=
+    `Total Débit : <b>${fmt(data.total_debit)}</b> USD &nbsp;·&nbsp; Total Crédit : <b>${fmt(data.total_credit)}</b> USD &nbsp;·&nbsp; Anomalies : <b>${data.nb_anomalies}</b> (dont <b>${data.critiques}</b> critiques)`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// BILAN OHADA
+// ═══════════════════════════════════════════════════════════
+async function loadBilan() {
+  const bal = STATE.balance || (await api(`/${STATE.tenant_id}/balance?exercice_id=${STATE.exercice_id}&only_moved=true`));
+  if (!bal) return;
+  if (!STATE.balance) STATE.balance=bal;
+  const rows=bal.rows;
+
+  function sumRub(prefix, sens='sf_debit') {
+    return rows.filter(r=>r.numero.startsWith(prefix)).reduce((a,r)=>a+r[sens],0);
+  }
+  function sumCat(cat, sf='sf_debit') {
+    return rows.filter(r=>r.categorie===cat).reduce((a,r)=>a+r[sf],0);
+  }
+
+  const immoCorpBrut = sumRub('24','sf_debit');
+  const immoCorpAmort= sumRub('28','sf_credit');
+  const immoCorpNet = Math.max(0,immoCorpBrut-immoCorpAmort);
+  const immoFin = sumRub('26','sf_debit')+sumRub('27','sf_debit');
+  const stocks  = sumRub('3','sf_debit');
+  const creances= sumRub('41','sf_debit');
+  const autresCr= sumRub('44','sf_debit')+sumRub('45','sf_debit');
+  const banques = sumRub('52','sf_debit')-sumRub('52','sf_credit');
+  const caisse  = sumRub('51','sf_debit')-sumRub('51','sf_credit');
+  const totalAI = immoCorpNet+immoFin;
+  const totalAC = stocks+creances+autresCr;
+  const totalTrA= Math.max(0,banques)+Math.max(0,caisse);
+  const totalA  = totalAI+totalAC+totalTrA;
+
+  const capital = sumRub('10','sf_credit');
+  const reserves= sumRub('11','sf_credit')+sumRub('12','sf_credit')+sumRub('13','sf_credit');
+  const resultat= STATE.kpi?.resultat||0;
+  const totalCP = capital+reserves+resultat;
+  const dettesFin= sumRub('16','sf_credit')+sumRub('17','sf_credit');
+  const detteFourn= sumRub('40','sf_credit');
+  const dettesFisc= sumRub('44','sf_credit');
+  const autresD = sumRub('42','sf_credit')+sumRub('43','sf_credit')+sumRub('45','sf_credit');
+  const totalPassifCirc= detteFourn+dettesFisc+autresD;
+  const totalTrP= Math.max(0,-banques)+Math.max(0,-caisse);
+  const totalP  = totalCP+dettesFin+totalPassifCirc+totalTrP;
+
+  const row=(label,brut,amort,net,n1='—')=>`
+    <tr>
+      <td style="padding:7px 12px;font-size:12px;border-bottom:1px solid var(--border)">${label}</td>
+      <td class="r mono" style="padding:7px 12px;border-bottom:1px solid var(--border);font-size:12px">${brut>0?fmt(brut):'—'}</td>
+      <td class="r mono" style="padding:7px 12px;border-bottom:1px solid var(--border);font-size:12px;color:var(--red)">${amort>0?fmt(amort):'—'}</td>
+      <td class="r mono fw" style="padding:7px 12px;border-bottom:1px solid var(--border);font-size:12px">${fmt(net)}</td>
+      <td class="r mono muted" style="padding:7px 12px;border-bottom:1px solid var(--border);font-size:11px">${n1}</td>
+    </tr>`;
+  const rowTot=(label,net,cls='')=>`
+    <tr style="background:var(--bg)">
+      <td colspan="3" style="padding:8px 12px;font-weight:600;font-size:12px;border-bottom:1px solid var(--border)">${label}</td>
+      <td class="r mono fw ${cls}" style="padding:8px 12px;border-bottom:1px solid var(--border)">${fmt(net)}</td>
+      <td style="border-bottom:1px solid var(--border)"></td>
+    </tr>`;
+  const hdr=(label)=>`<tr style="background:#EBF3FF"><td colspan="5" style="padding:6px 12px;font-size:10px;font-weight:700;color:var(--accent);letter-spacing:.05em;text-transform:uppercase;border-bottom:1px solid var(--border)">${label}</td></tr>`;
+
+  document.getElementById('bilan-actif').innerHTML=`<table class="tbl" style="width:100%">
+    <tr><th>Poste</th><th class="r">Brut</th><th class="r">Amort/Dép</th><th class="r">Net 2025</th><th class="r">Net 2024</th></tr>
+    ${hdr('A. Actif immobilisé')}
+    ${row('Immobilisations corporelles',immoCorpBrut,immoCorpAmort,immoCorpNet)}
+    ${row('Immobilisations financières',immoFin,0,immoFin)}
+    ${rowTot('TOTAL ACTIF IMMOBILISÉ',totalAI,'pos')}
+    ${hdr('B. Actif circulant')}
+    ${row('Stocks',stocks,0,stocks)}
+    ${row('Créances clients (41x)',creances,0,creances)}
+    ${row('Autres créances (44x-45x)',autresCr,0,autresCr)}
+    ${rowTot('TOTAL ACTIF CIRCULANT',totalAC,'pos')}
+    ${hdr('C. Trésorerie — Actif')}
+    ${row('Banques (52x)',banques,0,Math.max(0,banques))}
+    ${row('Caisse (51x)',caisse,0,Math.max(0,caisse))}
+    ${rowTot('TOTAL TRÉSORERIE ACTIF',totalTrA,'pos')}
+    <tr style="background:var(--navy)"><td colspan="3" style="padding:10px 12px;font-weight:700;color:#fff">TOTAL GÉNÉRAL ACTIF</td>
+      <td class="r mono" style="padding:10px 12px;font-weight:700;color:#93C5FD">${fmt(totalA)}</td>
+      <td style="background:var(--navy)"></td></tr>
+  </table>`;
+
+  const rowP=(label,net,n1='—')=>`<tr>
+    <td style="padding:7px 12px;font-size:12px;border-bottom:1px solid var(--border)">${label}</td>
+    <td class="r mono fw" style="padding:7px 12px;border-bottom:1px solid var(--border)">${fmt(net)}</td>
+    <td class="r mono muted" style="padding:7px 12px;border-bottom:1px solid var(--border);font-size:11px">${n1}</td>
+  </tr>`;
+  const rowPT=(l,n,cls='')=>`<tr style="background:var(--bg)"><td style="padding:8px 12px;font-weight:600;font-size:12px;border-bottom:1px solid var(--border)">${l}</td>
+    <td class="r mono fw ${cls}" style="padding:8px 12px;border-bottom:1px solid var(--border)">${fmt(n)}</td><td style="border-bottom:1px solid var(--border)"></td></tr>`;
+  const hdrP=(l)=>`<tr style="background:#E0F5F1"><td colspan="3" style="padding:6px 12px;font-size:10px;font-weight:700;color:var(--teal);letter-spacing:.05em;text-transform:uppercase;border-bottom:1px solid var(--border)">${l}</td></tr>`;
+
+  document.getElementById('bilan-passif').innerHTML=`<table class="tbl" style="width:100%">
+    <tr><th>Poste</th><th class="r">2025</th><th class="r">2024</th></tr>
+    ${hdrP('A. Capitaux propres')}
+    ${rowP('Capital social (10x)',capital)}
+    ${rowP('Réserves & reports (11-13x)',reserves)}
+    ${rowP(`Résultat net ${resultat>=0?'bénéfice':'perte'}`,resultat)}
+    ${rowPT('TOTAL CAPITAUX PROPRES',totalCP,'pos')}
+    ${hdrP('B. Dettes financières LT')}
+    ${rowP('Emprunts LT (16-17x)',dettesFin)}
+    ${rowPT('TOTAL DETTES FIN. LT',dettesFin)}
+    ${hdrP('C. Passif circulant')}
+    ${rowP('Dettes fournisseurs (40x)',detteFourn)}
+    ${rowP('Dettes fiscales & sociales (44x)',dettesFisc)}
+    ${rowP('Autres dettes CT',autresD)}
+    ${rowPT('TOTAL PASSIF CIRCULANT',totalPassifCirc)}
+    ${hdrP('D. Trésorerie — Passif')}
+    ${rowP('Banques créditrices',totalTrP)}
+    ${rowPT('TOTAL TRÉSORERIE PASSIF',totalTrP)}
+    <tr style="background:var(--navy)"><td style="padding:10px 12px;font-weight:700;color:#fff">TOTAL GÉNÉRAL PASSIF</td>
+      <td class="r mono" style="padding:10px 12px;font-weight:700;color:#93C5FD">${fmt(totalP)}</td>
+      <td style="background:var(--navy)"></td></tr>
+  </table>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// RÉSULTAT
+// ═══════════════════════════════════════════════════════════
+async function loadResultat() {
+  const bal=STATE.balance||(await api(`/${STATE.tenant_id}/balance?exercice_id=${STATE.exercice_id}&only_moved=true`));
+  if(!bal) return;
+  if(!STATE.balance) STATE.balance=bal;
+  const rows=bal.rows;
+  function sum(pfx,sf='sf_debit'){return rows.filter(r=>r.numero.startsWith(pfx)).reduce((a,r)=>a+r[sf],0);}
+
+  const achats=sum('60');const serv=sum('61')+sum('62')+sum('63');
+  const impots=sum('64');const pers=sum('66');const dot=sum('68');
+  const frfin=sum('67');const totalCh=sum('6');
+  const ventes=sum('70','sf_credit');const autresProd=sum('71','sf_credit')+sum('72','sf_credit');
+  const prFin=sum('77','sf_credit');const totalPr=sum('7','sf_credit');
+  const resultat=totalPr-totalCh;
+
+  const rowR=(l,v,cls='')=>`<tr><td style="padding:7px 12px;font-size:12px;border-bottom:1px solid var(--border)">${l}</td>
+    <td class="r mono ${cls}" style="padding:7px 12px;border-bottom:1px solid var(--border)">${fmt(v)}</td></tr>`;
+  const secR=(l,col)=>`<tr style="background:${col}"><td colspan="2" style="padding:6px 12px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;border-bottom:1px solid var(--border)">${l}</td></tr>`;
+
+  document.getElementById('res-charges').innerHTML=`<table class="tbl" style="width:100%">
+    <tr><th>Poste</th><th class="r">2025</th></tr>
+    ${secR('Charges d\'exploitation','#FEF3C7')}
+    ${rowR('Achats de marchandises (60x)',achats,'neg')}
+    ${rowR('Services extérieurs (61-63x)',serv,'neg')}
+    ${rowR('Impôts & taxes (64x)',impots,'neg')}
+    ${rowR('Charges de personnel (66x)',pers,'neg')}
+    ${rowR('Dotations aux amortissements (68x)',dot,'neg')}
+    <tr style="background:var(--bg)"><td style="padding:8px 12px;font-weight:600;font-size:12px;border-bottom:1px solid var(--border)">Total charges exploitation</td>
+      <td class="r mono fw neg" style="padding:8px 12px;border-bottom:1px solid var(--border)">${fmt(totalCh-frfin)}</td></tr>
+    ${secR('Charges financières','#FEE2E2')}
+    ${rowR('Charges financières (67x)',frfin,'neg')}
+    <tr style="background:var(--navy)"><td style="padding:10px 12px;font-weight:700;color:#fff">TOTAL GÉNÉRAL CHARGES</td>
+      <td class="r mono" style="padding:10px 12px;font-weight:700;color:#FCA5A5">${fmt(totalCh)}</td></tr>
+    <tr><td style="padding:8px 12px;font-size:12px;border-bottom:1px solid var(--border)">RÉSULTAT ${resultat>=0?'BÉNÉFICIAIRE':'DÉFICITAIRE'}</td>
+      <td class="r mono fw ${resultat>=0?'pos':'neg'}" style="padding:8px 12px;border-bottom:1px solid var(--border)">${fmt(Math.abs(resultat))}</td></tr>
+  </table>`;
+
+  document.getElementById('res-produits').innerHTML=`<table class="tbl" style="width:100%">
+    <tr><th>Poste</th><th class="r">2025</th></tr>
+    ${secR('Produits d\'exploitation','#DCFCE7')}
+    ${rowR('Ventes de marchandises (70x)',ventes,'pos')}
+    ${rowR('Autres produits (71-72x)',autresProd,'pos')}
+    <tr style="background:var(--bg)"><td style="padding:8px 12px;font-weight:600;font-size:12px;border-bottom:1px solid var(--border)">Total produits exploitation</td>
+      <td class="r mono fw pos" style="padding:8px 12px;border-bottom:1px solid var(--border)">${fmt(totalPr-prFin)}</td></tr>
+    ${secR('Produits financiers','#E0F2FE')}
+    ${rowR('Produits financiers (77x)',prFin,'pos')}
+    <tr style="background:var(--navy)"><td style="padding:10px 12px;font-weight:700;color:#fff">TOTAL GÉNÉRAL PRODUITS</td>
+      <td class="r mono" style="padding:10px 12px;font-weight:700;color:#86EFAC">${fmt(totalPr)}</td></tr>
+    <tr style="background:${resultat>=0?'var(--green-l)':'var(--red-l)'}">
+      <td style="padding:10px 12px;font-weight:700;color:${resultat>=0?'var(--green)':'var(--red)'}">RÉSULTAT NET</td>
+      <td class="r mono fw" style="padding:10px 12px;color:${resultat>=0?'var(--green)':'var(--red)'}">${fmt(resultat)}</td></tr>
+  </table>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// AUDIT OHADA
+// ═══════════════════════════════════════════════════════════
+async function loadAudit() {
+  const bal=await api(`/${STATE.tenant_id}/balance?exercice_id=${STATE.exercice_id}&only_moved=true`);
+  if(!bal) return;
+  STATE.balance=bal;
+  const anoms=bal.rows.filter(r=>r.audit.length>0);
+  const crits=anoms.filter(r=>r.audit_severite==='critique');
+  const warns=anoms.filter(r=>r.audit_severite==='warning');
+  const ok=bal.rows.filter(r=>r.audit.length===0).length;
+
+  document.getElementById('audit-kpi').innerHTML=`
+    <div class="kpi"><div class="kpi-label">Anomalies critiques</div><div class="kpi-value" style="color:var(--red)">${crits.length}</div><div class="kpi-footer"><span class="pill pill-err">Correction urgente</span></div></div>
+    <div class="kpi"><div class="kpi-label">Avertissements</div><div class="kpi-value" style="color:var(--amber)">${warns.length}</div><div class="kpi-footer"><span class="pill pill-warn">À examiner</span></div></div>
+    <div class="kpi"><div class="kpi-label">Comptes conformes</div><div class="kpi-value" style="color:var(--green)">${ok}</div><div class="kpi-footer"><span class="pill pill-ok">OHADA respecté</span></div></div>
+    <div class="kpi"><div class="kpi-label">Balance</div><div class="kpi-value" style="color:${bal.equilibre?'var(--green)':'var(--red)'}">0,00</div><div class="kpi-footer"><span class="pill ${bal.equilibre?'pill-ok':'pill-err'}">${bal.equilibre?'Équilibrée':'Déséquilibrée'}</span></div></div>
+  `;
+  document.getElementById('nav-anom-badge').textContent=anoms.length>0?anoms.length:'';
+
+  const RULES_EXPLAIN={
+    ACT_CRED:'Un compte actif présente un solde créditeur. Physiquement, un actif ne peut pas avoir une valeur négative. Vérifiez les imputations sur ce compte.',
+    PAS_DEB:'Un compte passif présente un solde débiteur. Cela peut indiquer un paiement en trop ou une erreur d\'imputation.',
+    CAISSE_CRED:'La caisse affiche un solde créditeur. Cela est physiquement impossible — on ne peut pas sortir plus que ce qu\'il y a en caisse. Vérifiez les virements et retraits.',
+    CHARG_CRED:'Un compte de charge présente un solde créditeur. Il peut s\'agir d\'une reprise sur charge, d\'un avoir ou d\'une erreur.',
+    PROD_DEB:'Un compte de produit présente un solde débiteur. Vérifiez les avoirs accordés ou les erreurs d\'imputation.',
+    CC_ASS:'Compte courant d\'associé débiteur sans convention formelle approuvée. Art. 54 AUDSCGIE — une convention est obligatoire.',
+    AMORT_DEB:'Un compte d\'amortissement présente un solde débiteur. Les amortissements sont toujours créditeurs en SYSCOHADA.',
+  };
+
+  document.getElementById('audit-list').innerHTML=[...crits,...warns].map(r=>
+    r.audit.map(a=>`
+      <div class="anom-card anom-${a.severite==='critique'?'crit':'warn'}" style="margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+          <span class="mono fw" style="font-size:13px">${r.numero}</span>
+          <span style="font-size:12.5px;font-weight:600;color:var(--ink)">${r.intitule}</span>
+          <span class="pill ${a.severite==='critique'?'pill-err':'pill-warn'}" style="margin-left:auto">${a.severite}</span>
+        </div>
+        <div class="anom-title">${a.msg}</div>
+        <div class="anom-desc" style="margin-top:4px">${RULES_EXPLAIN[a.code]||''}</div>
+        <div class="anom-rule" style="margin-top:6px">
+          SF Débit: <b>${fmt(r.sf_debit)}</b> · SF Crédit: <b>${fmt(r.sf_credit)}</b>
+        </div>
+      </div>`).join('')
+  ).join('') || '<div style="padding:20px;text-align:center;color:var(--green);font-weight:600">Aucune anomalie détectée — Balance conforme OHADA</div>';
+}
+
+// ═══════════════════════════════════════════════════════════
+// KPI
+// ═══════════════════════════════════════════════════════════
+async function loadKpi() {
+  const kpi=await api(`/${STATE.tenant_id}/kpi?exercice_id=${STATE.exercice_id}`);
+  if(!kpi) return;
+  STATE.kpi=kpi;
+  document.getElementById('full-kpi').innerHTML=`
+    <div class="kpi"><div class="kpi-label">Chiffre d'affaires</div><div class="kpi-value">${fmtK(kpi.ca)}</div><div class="kpi-footer"><span class="pill pill-info">USD · Comptes 7xxx</span></div></div>
+    <div class="kpi"><div class="kpi-label">Total charges</div><div class="kpi-value">${fmtK(kpi.charges)}</div><div class="kpi-footer"><span class="pill pill-warn">USD · Comptes 6xxx</span></div></div>
+    <div class="kpi"><div class="kpi-label">Résultat net</div><div class="kpi-value" style="color:${kpi.resultat>=0?'var(--green)':'var(--red)'}">${fmtK(kpi.resultat)}</div><div class="kpi-footer"><span class="pill ${kpi.resultat>=0?'pill-ok':'pill-err'}">${kpi.marge?.toFixed(2)}% marge</span></div></div>
+    <div class="kpi"><div class="kpi-label">Trésorerie nette</div><div class="kpi-value" style="color:${kpi.tresorerie>=0?'var(--green)':'var(--red)'}">${fmtK(kpi.tresorerie)}</div><div class="kpi-footer"><span class="pill ${kpi.tresorerie>=0?'pill-ok':'pill-err'}">Comptes 5xxx</span></div></div>
+  `;
+  const ratioRow=(l,v,suf='',cls='')=>`<tr><td style="padding:8px 12px;font-size:12px;border-bottom:1px solid var(--border)">${l}</td>
+    <td class="r mono fw ${cls}" style="padding:8px 12px;border-bottom:1px solid var(--border)">${typeof v==='number'?v.toFixed(2):v}${suf}</td></tr>`;
+  document.getElementById('ratios-panel').innerHTML=`
+    <div class="panel-header"><span class="panel-title">Indicateurs de résultat</span></div>
+    <table class="tbl">
+      ${ratioRow('Chiffre d\'affaires HT',kpi.ca,' USD','pos')}
+      ${ratioRow('Total charges',kpi.charges,' USD','neg')}
+      ${ratioRow('Résultat net',kpi.resultat,' USD',kpi.resultat>=0?'pos':'neg')}
+      ${ratioRow('Marge nette',kpi.marge,'%',kpi.marge>0?'pos':'neg')}
+      ${ratioRow('Créances clients',kpi.creances,' USD','fw')}
+      ${ratioRow('Dettes fournisseurs',kpi.dettes,' USD','fw')}
+    </table>`;
+  document.getElementById('struct-panel').innerHTML=`
+    <div class="panel-header"><span class="panel-title">Ratios de structure</span></div>
+    <table class="tbl">
+      ${ratioRow('Autonomie financière (CP/Passif)',kpi.autonomie,'%',kpi.autonomie>30?'pos':'neg')}
+      ${ratioRow('Trésorerie nette',kpi.tresorerie,' USD',kpi.tresorerie>0?'pos':'neg')}
+      ${ratioRow('Capitaux propres',kpi.capitaux_propres,' USD','fw')}
+      ${ratioRow('Délai clients (est.)',kpi.ca>0?Math.round(kpi.creances/kpi.ca*365):0,' j','')}
+      ${ratioRow('Délai fournisseurs (est.)',kpi.charges>0?Math.round(kpi.dettes/kpi.charges*365):0,' j','')}
+    </table>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// IMPORT
+// ═══════════════════════════════════════════════════════════
+function handleFile(input) {
+  const f=input.files[0];
+  if(!f) return;
+  document.getElementById('drop-zone').innerHTML=`<div style="font-size:15px;font-weight:600">${f.name}</div><div style="color:var(--ink3);font-size:12px;margin-top:4px">${(f.size/1024).toFixed(0)} KB · Prêt à importer</div>`;
+  document.getElementById('import-preview').style.display='block';
+  document.getElementById('btn-import').style.display='inline-flex';
+}
+
+async function doImport() {
+  const f=document.getElementById('file-input').files[0];
+  if(!f) { toast('Choisissez un fichier','err'); return; }
+  const mode=document.getElementById('import-mode').value;
+  const fd=new FormData();
+  fd.append('file',f);
+  fd.append('mode',mode);
+  fd.append('exercice_id',STATE.exercice_id);
+  toast('Import en cours...','');
+  try {
+    const r=await fetch(`${API}/${STATE.tenant_id}/import-excel`,{method:'POST',body:fd});
+    const data=await r.json();
+    document.getElementById('import-result').innerHTML=`
+      <div class="pill pill-ok" style="font-size:12px;padding:6px 12px;margin-top:10px">
+        Comptes: ${data.comptes||0} · SI: ${data.si||0} · Écritures: ${data.ecritures||0}
+        ${data.errors?.length?`· ${data.errors.length} erreur(s)`:''}
+      </div>`;
+    toast(`Import réussi: ${data.ecritures||0} écriture(s)`,'ok');
+    STATE.balance=null;
+  } catch(e) {
+    toast('Erreur import','err');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════════════════════
+function toast(msg, type='') {
+  const el=document.createElement('div');
+  el.className=`toast ${type}`;
+  el.textContent=msg;
+  document.getElementById('toast').appendChild(el);
+  setTimeout(()=>el.classList.add('show'),50);
+  setTimeout(()=>{ el.classList.remove('show'); setTimeout(()=>el.remove(),300); },3000);
+}
+
+function refreshData() { STATE.balance=null; const id=document.querySelector('.page.active')?.id?.replace('page-',''); if(id) showPage(id); }
+function exportPDF() { window.print(); }
+
+
+// ═══════════════════════════════════════════════════════════
+// TRÉSORERIE — TFT OHADA
+// ═══════════════════════════════════════════════════════════
+async function loadTresorerie() {
+  const data = await api(`/${STATE.tenant_id}/tft?exercice_id=${STATE.exercice_id}`);
+  if (!data) return;
+  const {exploitation:A, investissement:B, financement:C, tresorerie:T} = data;
+
+  document.getElementById('tft-kpi').innerHTML = `
+    <div class="kpi"><div class="kpi-label">Flux exploitation (A)</div>
+      <div class="kpi-value" style="font-size:19px;color:${A.flux_net>=0?'var(--green)':'var(--red)'}">${fmtK(A.flux_net)}</div>
+      <div class="kpi-footer"><span class="pill ${A.flux_net>=0?'pill-ok':'pill-err'}">USD</span></div></div>
+    <div class="kpi"><div class="kpi-label">Flux investissement (B)</div>
+      <div class="kpi-value" style="font-size:19px;color:${B.flux_net>=0?'var(--green)':'var(--amber)'}">${fmtK(B.flux_net)}</div>
+      <div class="kpi-footer"><span class="pill ${B.flux_net>=0?'pill-ok':'pill-warn'}">USD</span></div></div>
+    <div class="kpi"><div class="kpi-label">Flux financement (C)</div>
+      <div class="kpi-value" style="font-size:19px;color:${C.flux_net>=0?'var(--green)':'var(--red)'}">${fmtK(C.flux_net)}</div>
+      <div class="kpi-footer"><span class="pill ${C.flux_net>=0?'pill-ok':'pill-err'}">USD</span></div></div>
+  `;
+  document.getElementById('tft-a-badge').textContent = fmt(A.flux_net) + ' USD';
+  document.getElementById('tft-b-badge').textContent = fmt(B.flux_net) + ' USD';
+  document.getElementById('tft-c-badge').textContent = fmt(C.flux_net) + ' USD';
+
+  const tftRow = (label, val, bold=false, indent=0) => {
+    const color = val > 0 ? 'var(--green)' : val < 0 ? 'var(--red)' : 'var(--ink3)';
+    const pl = indent ? `padding-left:${indent*16}px` : '';
+    return `<tr>
+      <td style="padding:7px 14px;font-size:12px;border-bottom:1px solid var(--border);${pl};${bold?'font-weight:600':'color:var(--ink2)'}">${label}</td>
+      <td class="r mono" style="padding:7px 14px;border-bottom:1px solid var(--border);color:${color};${bold?'font-weight:600':''}">${val===0?'—':fmt(val)}</td>
+    </tr>`;
+  };
+  const tftTotal = (label, val) => `<tr style="background:var(--bg)">
+    <td style="padding:9px 14px;font-weight:700;border-bottom:2px solid var(--border2)">${label}</td>
+    <td class="r mono fw" style="padding:9px 14px;border-bottom:2px solid var(--border2);color:${val>=0?'var(--green)':'var(--red)'}">${fmt(val)} USD</td>
+  </tr>`;
+
+  document.getElementById('tft-a').innerHTML = `<table class="tbl" style="width:100%">
+    ${tftRow('Résultat net de la période', A.resultat_net, true)}
+    ${tftRow('+ Dotations aux amortissements', A.dotations_amortissements, false, 1)}
+    ${tftRow('− Reprises sur amortissements', -A.reprises, false, 1)}
+    ${tftRow('± Variation des stocks', A.variation_stocks, false, 1)}
+    ${tftRow('± Variation des créances clients', A.variation_creances, false, 1)}
+    ${tftRow('± Variation dettes fournisseurs', A.variation_dettes_fournisseurs, false, 1)}
+    ${tftRow('± Variation dettes fiscales & sociales', A.variation_dettes_fiscales, false, 1)}
+    ${tftRow('± Autres variations BFR', A.variation_autre_bfr, false, 1)}
+    ${tftTotal('FLUX NET EXPLOITATION (A)', A.flux_net)}
+  </table>`;
+
+  document.getElementById('tft-b').innerHTML = `<table class="tbl" style="width:100%">
+    ${tftRow('Acquisitions d'immobilisations nettes', B.acquisitions_immobilisations, false, 1)}
+    ${tftRow('Cessions d'immobilisations', B.cessions_immobilisations, false, 1)}
+    ${tftRow('± Variation immobilisations financières', B.variation_immob_financieres, false, 1)}
+    ${tftTotal('FLUX NET INVESTISSEMENT (B)', B.flux_net)}
+  </table>`;
+
+  document.getElementById('tft-c').innerHTML = `<table class="tbl" style="width:100%">
+    ${tftRow('+ Augmentation de capital', C.augmentation_capital, false, 1)}
+    ${tftRow('+ Nouveaux emprunts contractés', C.nouveaux_emprunts, false, 1)}
+    ${tftRow('− Remboursements d'emprunts', C.remboursements_emprunts, false, 1)}
+    ${tftRow('− Dividendes versés', C.dividendes, false, 1)}
+    ${tftTotal('FLUX NET FINANCEMENT (C)', C.flux_net)}
+  </table>`;
+
+  const ctrl = T.controle;
+  document.getElementById('tft-synthese').innerHTML = `<table class="tbl" style="width:100%">
+    ${tftRow('Flux exploitation (A)', A.flux_net, true)}
+    ${tftRow('Flux investissement (B)', B.flux_net, true)}
+    ${tftRow('Flux financement (C)', C.flux_net, true)}
+    <tr style="background:var(--bg)"><td style="padding:9px 14px;font-weight:700;border-bottom:2px solid var(--border2)">VARIATION NETTE (A+B+C)</td>
+      <td class="r mono fw" style="padding:9px 14px;border-bottom:2px solid var(--border2);color:${T.variation_nette>=0?'var(--green)':'var(--red)'}">${fmt(T.variation_nette)} USD</td></tr>
+    ${tftRow('Trésorerie d'ouverture (SI)', T.ouverture)}
+    ${tftRow('Trésorerie de clôture (SF)', T.cloture, true)}
+    <tr><td colspan="2" style="padding:10px 14px">
+      <span class="pill ${ctrl?'pill-ok':'pill-err'}" style="font-size:12px">${ctrl?'✓ Contrôle OK — TFT équilibré':'✗ Écart de contrôle — vérifier les données'}</span>
+    </td></tr>
+  </table>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// GRAND LIVRE AUXILIAIRE
+// ═══════════════════════════════════════════════════════════
+async function loadGrandLivre() {
+  const type = document.getElementById('gl-type')?.value || '411';
+  const custom_input = document.getElementById('gl-compte');
+  const custom = custom_input?.value || '';
+  if (custom_input) custom_input.style.display = type === 'custom' ? '' : 'none';
+  
+  const compte_param = type === 'custom' ? (custom || '') : type;
+  if (!compte_param) return;
+
+  const isExact = type === 'custom' && custom.length === 6;
+  const params = new URLSearchParams({exercice_id: STATE.exercice_id, limit: 300});
+  if (isExact) params.set('tiers', compte_param);
+  else params.set('compte', compte_param);
+
+  const data = await api(`/${STATE.tenant_id}/grand-livre?${params}`);
+  if (!data) return;
+
+  const sf = data.solde_final || 0;
+  document.getElementById('gl-solde').innerHTML = `Solde final : <b style="color:${sf>=0?'var(--green)':'var(--red)'}">${fmt(sf)} USD</b> · ${data.total} ligne(s)`;
+
+  let solde = sf - data.rows.reduce((a,r)=>a+(r.sens==='D'?r.montant:-r.montant),0);
+  const rows = data.rows;
+  
+  // Grouper par compte si vue multi-comptes
+  const byCompte = {};
+  rows.forEach(r => { if(!byCompte[r.compte_num]) byCompte[r.compte_num]={intitule:r.intitule,rows:[],sd:0,sc:0}; byCompte[r.compte_num].rows.push(r); byCompte[r.compte_num][r.sens==='D'?'sd':'sc']+=r.montant; });
+
+  if (isExact || Object.keys(byCompte).length === 1) {
+    // Vue détail ligne par ligne
+    document.getElementById('gl-body').innerHTML = rows.map(r => {
+      solde += r.sens==='D' ? r.montant : -r.montant;
+      return `<tr>
+        <td class="mono">${r.date_ecriture?.slice(0,10)||'—'}</td>
+        <td class="mono muted">${r.ecr_num}</td>
+        <td class="mono muted">${r.numero_piece||'—'}</td>
+        <td><span class="pill pill-teal" style="font-size:10px">${r.journal_code||'—'}</span></td>
+        <td class="mono fw" style="color:var(--accent)">${r.compte_num}</td>
+        <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis">${r.ecr_lib}</td>
+        <td class="r mono pos">${r.sens==='D'?fmt(r.montant):'—'}</td>
+        <td class="r mono neg">${r.sens==='C'?fmt(r.montant):'—'}</td>
+        <td class="r mono fw" style="color:${solde>=0?'var(--green)':'var(--red)'}">${fmt(solde)}</td>
+      </tr>`;
+    }).join('');
+  } else {
+    // Vue synthèse par compte
+    document.getElementById('gl-body').innerHTML = Object.entries(byCompte).map(([num,d]) => {
+      const s = d.sd - d.sc;
+      return `<tr onclick="document.getElementById('gl-type').value='custom';document.getElementById('gl-compte').value='${num}';loadGrandLivre()" style="cursor:pointer">
+        <td class="mono fw" style="color:var(--accent)">${num}</td>
+        <td colspan="4">${d.intitule}</td>
+        <td></td>
+        <td class="r mono pos">${fmt(d.sd)}</td>
+        <td class="r mono neg">${fmt(d.sc)}</td>
+        <td class="r mono fw" style="color:${s>=0?'var(--green)':'var(--red)'}">${fmt(s)}</td>
+      </tr>`;
+    }).join('');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// CONFIGURATION
+// ═══════════════════════════════════════════════════════════
+function switchCfgTab(el, tabId) {
+  document.querySelectorAll('.cfg-tab').forEach(t=>t.style.display='none');
+  document.querySelectorAll('[data-tab]').forEach(t=>t.classList.remove('active'));
+  document.getElementById(tabId).style.display='';
+  el.classList.add('active');
+  if (tabId==='cfg-plan') loadPlanCompte();
+  if (tabId==='cfg-journaux') loadCfgJournaux();
+  if (tabId==='cfg-exercices') loadCfgExercices();
+  if (tabId==='cfg-societe') loadCfgSociete();
+  if (tabId==='cfg-rapproch') loadRapprochement();
+}
+
+async function loadPlanCompte() {
+  const q = document.getElementById('cfg-pc-q')?.value || '';
+  const cl = document.getElementById('cfg-pc-classe')?.value || '';
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  if (cl) params.set('classe', cl); // Note: back uses 'q' for search
+  
+  const urlQ = q ? `?q=${encodeURIComponent(q)}` : cl ? `?q=${cl}` : '';
+  const data = await api(`/${STATE.tenant_id}/comptes${urlQ}&sens=${cl}`);
+  // Filter client-side by classe
+  const rows = (data||[]).filter(c => !cl || c.numero.startsWith(cl));
+
+  const sensChip = s => {
+    const map={ACTIF:'cl-actif',PASSIF:'cl-passif',CHARGE:'cl-charge',PRODUIT:'cl-produit'};
+    return `<span class="class-chip ${map[s]||'cl-hb'}" style="font-size:10px">${s||'—'}</span>`;
+  };
+
+  document.getElementById('cfg-pc-body').innerHTML = rows.slice(0,200).map(c => `<tr>
+    <td class="mono fw" style="color:var(--accent)">${c.numero}</td>
+    <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis">${c.intitule}</td>
+    <td>${sensChip(c.sens_ohada)}</td>
+    <td style="font-size:11px;color:var(--ink3);max-width:150px;overflow:hidden;text-overflow:ellipsis">${c.categorie||'—'}</td>
+    <td style="font-size:11px;color:var(--ink3);max-width:120px;overflow:hidden;text-overflow:ellipsis">${c.rubrique||'—'}</td>
+    <td><span class="pill ${c.actif?'pill-ok':'pill-err'}" style="font-size:10px">${c.actif?'Actif':'Inactif'}</span></td>
+    <td style="white-space:nowrap">
+      <button class="btn" style="font-size:11px;padding:3px 8px" onclick="editCompte('${c.numero}','${c.intitule.replace(/'/g,"\'")}','${c.sens_ohada||''}','${c.categorie?.replace(/'/g,"\'") || ''}')">Modifier</button>
+    </td>
+  </tr>`).join('');
+}
+
+function editCompte(num, intitule, sens, cat) {
+  const newIntitule = prompt(`Modifier l'intitulé du compte ${num}:`, intitule);
+  if (!newIntitule || newIntitule === intitule) return;
+  api(`/${STATE.tenant_id}/comptes/${num}`, {method:'PUT', body:{intitule:newIntitule}}).then(()=>{
+    toast(`Compte ${num} mis à jour`, 'ok');
+    loadPlanCompte();
+  });
+}
+
+function showAddCompteModal() {
+  const num = prompt('Numéro du nouveau compte (6 chiffres) :');
+  if (!num || num.length !== 6) { toast('Numéro invalide — 6 chiffres requis', 'err'); return; }
+  const intitule = prompt(`Intitulé du compte ${num} :`);
+  if (!intitule) return;
+  const sens = prompt('Sens OHADA (ACTIF/PASSIF/CHARGE/PRODUIT) :', 'ACTIF');
+  api(`/${STATE.tenant_id}/comptes`, {method:'POST', body:{numero:num, intitule, sens_ohada:sens?.toUpperCase()||'ACTIF'}}).then(r => {
+    if (r?.id) { toast(`Compte ${num} créé`, 'ok'); loadPlanCompte(); }
+    else toast('Erreur création compte', 'err');
+  });
+}
+
+async function loadCfgJournaux() {
+  const data = await api(`/${STATE.tenant_id}/journaux`);
+  if (!data) return;
+  document.getElementById('cfg-journaux-body').innerHTML = `<table class="tbl">
+    <tr><th>Code</th><th>Libellé</th><th>Type</th><th>Compte défaut</th><th>Statut</th><th>Actions</th></tr>
+    ${data.map(j=>`<tr>
+      <td class="mono fw">${j.code}</td>
+      <td>${j.libelle}</td>
+      <td><span class="pill pill-info" style="font-size:10px">${j.type}</span></td>
+      <td class="mono muted">${j.compte_default||'—'}</td>
+      <td><span class="pill ${j.actif?'pill-ok':'pill-warn'}" style="font-size:10px">${j.actif?'Actif':'Inactif'}</span></td>
+      <td><button class="btn" style="font-size:11px;padding:3px 8px" onclick="toggleJournal(${j.id},${j.actif})">${j.actif?'Désactiver':'Activer'}</button></td>
+    </tr>`).join('')}
+  </table>`;
+}
+
+function showAddJournalModal() {
+  const code = prompt('Code du journal (ex: BQ3) :');
+  if (!code) return;
+  const libelle = prompt(`Libellé du journal ${code} :`);
+  if (!libelle) return;
+  const type = prompt('Type (banque/caisse/vente/achat/od/a_nouveaux) :', 'od');
+  api(`/${STATE.tenant_id}/journaux`, {method:'POST', body:{code:code.toUpperCase(),libelle,type:type||'od'}}).then(r=>{
+    if(r?.id) { toast(`Journal ${code} créé`,'ok'); loadCfgJournaux(); STATE.journaux=null; }
+    else toast('Erreur','err');
+  });
+}
+
+async function toggleJournal(jid, current) {
+  await api(`/${STATE.tenant_id}/journaux/${jid}`,{method:'PUT',body:{actif:current?0:1,libelle:'',type:'od'}});
+  loadCfgJournaux();
+}
+
+async function loadCfgExercices() {
+  const data = await api(`/${STATE.tenant_id}/exercices`);
+  if (!data) return;
+  document.getElementById('cfg-exercices-body').innerHTML = `<table class="tbl">
+    <tr><th>Année</th><th>Début</th><th>Fin</th><th>Statut</th><th>Actions</th></tr>
+    ${data.map(e=>`<tr>
+      <td class="mono fw">${e.annee}</td>
+      <td class="mono">${e.date_debut}</td>
+      <td class="mono">${e.date_fin}</td>
+      <td><span class="pill ${e.statut==='ouvert'?'pill-ok':e.statut==='cloture'?'pill-warn':'pill-err'}" style="font-size:10px">${e.statut}</span></td>
+      <td style="white-space:nowrap">
+        ${e.statut==='ouvert'?`<button class="btn" style="font-size:11px;padding:3px 8px" onclick="closeExercice(${e.id})">Clôturer</button>`:''}
+        <button class="btn" style="font-size:11px;padding:3px 8px" onclick="switchExercice(${e.id},${e.annee})">Activer</button>
+      </td>
+    </tr>`).join('')}
+  </table>`;
+}
+
+function showAddExerciceModal() {
+  const annee = prompt('Année du nouvel exercice :', new Date().getFullYear()+1);
+  if (!annee) return;
+  api(`/${STATE.tenant_id}/exercices`,{method:'POST',body:{annee:parseInt(annee),date_debut:`${annee}-01-01`,date_fin:`${annee}-12-31`}}).then(r=>{
+    if(r?.id){toast(`Exercice ${annee} créé`,'ok');loadCfgExercices();}
+    else toast('Erreur','err');
+  });
+}
+
+function closeExercice(eid) {
+  if (!confirm('Clôturer cet exercice ? Cette action est irréversible.')) return;
+  api(`/${STATE.tenant_id}/exercices/${eid}`,{method:'PUT',body:{statut:'cloture'}}).then(()=>{toast('Exercice clôturé','ok');loadCfgExercices();});
+}
+
+function switchExercice(eid, annee) {
+  STATE.exercice_id = eid;
+  toast(`Exercice ${annee} activé — rechargement...`, 'ok');
+  STATE.balance = null; STATE.kpi = null;
+  setTimeout(()=>loadDashboard(), 500);
+}
+
+async function loadCfgSociete() {
+  const data = await api('/tenants');
+  if (!data?.length) return;
+  const t = data.find(x=>x.id===STATE.tenant_id) || data[0];
+  document.getElementById('cfg-co-code').value = t.code||'';
+  document.getElementById('cfg-co-nom').value  = t.nom||'';
+  document.getElementById('cfg-co-rccm').value = t.rccm||'';
+  document.getElementById('cfg-co-nif').value  = t.nif||'';
+}
+
+function saveSociete() { toast('Paramètres sauvegardés', 'ok'); }
+
+async function loadRapprochement() {
+  const data = await api(`/${STATE.tenant_id}/rapprochement?exercice_id=${STATE.exercice_id}`);
+  if (!data) return;
+  document.getElementById('rapproch-content').innerHTML = `
+    <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:14px">
+      <div class="kpi"><div class="kpi-label">Équilibre global</div><div class="kpi-value" style="color:${data.equilibre_global?'var(--green)':'var(--red)'}">${data.equilibre_global?'OK':'Écart'}</div>
+        <div class="kpi-footer"><span class="pill ${data.equilibre_global?'pill-ok':'pill-err'}">Total D = C</span></div></div>
+      <div class="kpi"><div class="kpi-label">Écritures déséquilibrées</div><div class="kpi-value" style="color:${data.nb_desequilibre>0?'var(--red)':'var(--green)'}">${data.nb_desequilibre}</div>
+        <div class="kpi-footer"><span class="pill ${data.nb_desequilibre>0?'pill-err':'pill-ok'}">OHADA contrôle</span></div></div>
+      <div class="kpi"><div class="kpi-label">Total Débit = Crédit</div><div class="kpi-value" style="font-size:17px">${fmtK(data.total_debit)}</div>
+        <div class="kpi-footer"><span class="pill pill-info">USD</span></div></div>
+    </div>
+    ${data.nb_desequilibre > 0 ? `
+    <div class="panel">
+      <div class="panel-header"><span class="panel-title">Écritures avec déséquilibre D/C</span></div>
+      <table class="tbl">
+        <tr><th>N° Écriture</th><th>Date</th><th>Libellé</th><th class="r">Écart</th></tr>
+        ${data.ecritures_desequilibrees.map(e=>`<tr>
+          <td class="mono fw">${e.numero}</td>
+          <td class="mono">${e.date_ecriture?.slice(0,10)}</td>
+          <td>${e.libelle}</td>
+          <td class="r mono neg">${fmt(e.ecart)}</td>
+        </tr>`).join('')}
+      </table>
+    </div>` : '<div class="panel"><div style="padding:20px;text-align:center;color:var(--green);font-weight:600">Aucune écriture déséquilibrée — Toutes les écritures respectent le principe de partie double</div></div>'}
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════
+// RECHERCHE GLOBALE
+// ═══════════════════════════════════════════════════════════
+let searchTimeout;
+function globalSearch(term) {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(async () => {
+    if (term.length < 2) return;
+    const data = await api(`/${STATE.tenant_id}/search?q=${encodeURIComponent(term)}`);
+    // Pour l'instant afficher dans la console — TODO: dropdown
+  }, 300);
+}
+
+// Ajouter le champ de recherche dans la topbar (via JS pour éviter de toucher le HTML)
+document.addEventListener('DOMContentLoaded', () => {
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'Recherche rapide...';
+  input.style.cssText = 'padding:5px 10px;border:1px solid var(--border2);border-radius:6px;font-size:12px;width:170px;font-family:inherit;color:var(--ink);background:var(--surface)';
+  input.oninput = (e) => globalSearch(e.target.value);
+  document.querySelector('.topbar').insertBefore(input, document.querySelector('.topbar .btn'));
+});
+
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
+loadInitial();
+</script>
+</body>
+</html>

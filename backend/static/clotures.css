@@ -1,0 +1,7 @@
+#view-tva .banner, #view-inventaires .banner { display:block; line-height:1.55; }
+.period-toolbar { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; margin:16px 0; }
+.period-toolbar .form-group { min-width:190px; flex:1; margin-bottom:0; }
+.period-toolbar .btn { min-height:40px; }
+#view-tva details > summary { cursor:pointer; }
+#iv-lignes input:invalid { border-color:var(--r); }
+@media(max-width:650px) { .period-toolbar .form-group { min-width:100%; } .period-toolbar .btn { flex:1 1 45%; } }

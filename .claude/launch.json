@@ -1,0 +1,32 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ERP Kilima (Django)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "C:\\Users\\LaurentKwete\\Projects\\ERP Kilima holdings\\backend_django\\manage.py",
+        "runserver",
+        "127.0.0.1:8000",
+        "--noreload"
+      ],
+      "port": 8000
+    },
+    {
+      "name": "Archive FastAPI (référence, port 8010)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "app.main:app",
+        "--app-dir",
+        "C:\\Users\\LaurentKwete\\Projects\\ERP Kilima holdings\\backend",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8010"
+      ],
+      "port": 8010
+    }
+  ]
+}
