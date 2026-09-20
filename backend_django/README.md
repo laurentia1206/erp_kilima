@@ -5,6 +5,17 @@ Django se trouve encore dans `../backend/static/`. La base, les justificatifs
 et la configuration conservent également leur emplacement historique dans
 `../backend/`. Le code FastAPI est une archive, pas le moteur à modifier.
 
+## Applications métier
+
+Le dossier `apps/` contient les applications Django : approbations, trésorerie,
+comptabilité, stocks, commercial, hôtel, transport, maintenance, engins,
+groupe, RH, pilotage et éditions. `core/` conserve le socle partagé et des
+alias pour les anciens imports. Chaque domaine possède ses routes ; les
+domaines persistants possèdent leurs modèles et migrations.
+
+Voir [le guide d’architecture](../docs/17-architecture-applications-django.md)
+pour la répartition et la transition sans changement des tables existantes.
+
 ## Utiliser l'installation existante
 
 Depuis ce dossier :

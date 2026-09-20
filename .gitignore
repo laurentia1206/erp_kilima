@@ -14,6 +14,9 @@ backend/.env
 # Outillage local (conversion de documents, etc.)
 .build/
 node_modules/
+.venv/
+livrables/
+data/*.db
 
 # Divers
 *.log

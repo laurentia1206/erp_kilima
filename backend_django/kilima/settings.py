@@ -51,6 +51,19 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "rest_framework",
     "core",
+    "apps.approbations.apps.ApprobationsConfig",
+    "apps.tresorerie.apps.TresorerieConfig",
+    "apps.comptabilite.apps.ComptabiliteConfig",
+    "apps.stocks.apps.StocksConfig",
+    "apps.commercial.apps.CommercialConfig",
+    "apps.hotel.apps.HotelConfig",
+    "apps.transport.apps.TransportConfig",
+    "apps.maintenance.apps.MaintenanceConfig",
+    "apps.engins.apps.EnginsConfig",
+    "apps.groupe.apps.GroupeConfig",
+    "apps.rh.apps.RhConfig",
+    "apps.pilotage.apps.PilotageConfig",
+    "apps.editions.apps.EditionsConfig",
 ]
 
 MIDDLEWARE = [
