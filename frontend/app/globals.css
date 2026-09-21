@@ -1,3 +1,4 @@
+@import './tailwind.css';
 @import '../legacy/styles.css';
 @import '../legacy/workspace.css';
 @import '../legacy/module-ux.css';
@@ -8,6 +9,7 @@
 @import '../legacy/pilotage.css';
 @import '../legacy/audit.css';
 @import '../legacy/systeme.css';
+@import './native-workspace.css';
 
 .startup-error { max-width: 620px; margin: 10vh auto; padding: 32px; background: white; border-radius: 16px; }
 .startup-error p { margin: 16px 0; }
@@ -37,11 +39,12 @@
 .business-table th { background: #eaf1f2; color: #365364; }
 .business-table .right { text-align: right; white-space: nowrap; }
 .business-rate { max-width: 620px; }
-.business-dialog { position: fixed; margin: auto; padding: 0; width: min(1050px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); border: 1px solid #dce5e7; border-radius: 16px; background: white; color: var(--text); box-shadow: 0 20px 80px #152c4840; }
+.business-dialog { position: fixed; margin: auto; padding: 0; width: min(700px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); border: 1px solid #dce5e7; border-radius: 16px; background: white; color: var(--text); box-shadow: 0 20px 80px #152c4840; }
+.business-dialog:has(.business-table,.business-print,.audit-diff) { width:min(1050px,calc(100vw - 32px)); }
 .business-dialog::backdrop { background: #182b4b88; }
 .business-dialog > header, .business-dialog > footer { display: flex; align-items: center; gap: 12px; padding: 18px 24px; background: white; position: sticky; z-index: 1; }
 .business-dialog > header { top: 0; border-bottom: 1px solid #e4ebed; justify-content: space-between; }
-.business-dialog > header h2 { margin: 0; font-size: 20px; color: var(--p); }
+.business-dialog > header h2 { margin: 0; font-size: 18px; color: var(--p); }
 .business-dialog > footer { bottom: 0; justify-content: flex-end; flex-wrap: wrap; border-top: 1px solid #e4ebed; }
 .business-dialog-body { padding: 24px; }
 .business-dialog-body p { line-height: 1.6; margin-bottom: 14px; }
@@ -50,6 +53,7 @@
 .business-print h2 { margin: 20px 0 12px; }
 @media (max-width: 600px) { .business-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); } .business-dialog-body { padding: 16px; } .business-dialog > header, .business-dialog > footer { padding: 14px 16px; } .business-table table { min-width: 650px; } }
 @media print {
+  .business-dialog:not(:has(.business-print)) { display: none !important; }
   body:has(.business-print) > * { display: none !important; }
   body:has(.business-print) > #react-modal-root { display: block !important; }
   /* Le portail se trouve dans l'enveloppe React ; conserver uniquement sa branche. */
@@ -64,3 +68,28 @@
   .business-print tr { break-inside: avoid; }
   .business-print th, .business-print td { padding: 6px; overflow-wrap: anywhere; }
 }
+
+/* Dépôts et inventaires : saisie lisible, même sur un écran étroit. */
+.stock-count-input { min-width: 105px; max-width: 150px; }
+.stock-transfer-line, .business-confirm { padding: 16px; border: 1px solid var(--border, #dbe4e8); border-radius: 12px; margin: 12px 0; }
+.stock-transfer-line { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 12px; }
+.stock-transfer-line .business-toolbar { grid-column: 1 / -1; }
+@media (max-width: 640px) { .stock-transfer-line { grid-template-columns: minmax(0, 1fr); } }
+
+.hotel-react-planning th { white-space: nowrap; }
+.hotel-react-planning th:first-child { position: sticky; left: 0; z-index: 1; min-width: 120px; }
+.hotel-react-planning td { min-width: 80px; padding: 6px 2px; }
+.hotel-react-planning .hotel-today { background: #edf7f4; }
+.hotel-occupation { border: 0; border-radius: 5px; background: #226873; color: white; width: 100%; max-width: 100px; padding: 7px 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.hotel-occupation.hotel-inhouse { background: #407540; }
+.hotel-occupation:focus-visible { outline: 3px solid #de9d16; outline-offset: 2px; }
+
+.accounting-entry-line { border: 1px solid var(--bdr); border-radius: 12px; padding: 14px; margin: 16px 0; min-width: 0; }
+.accounting-entry-line legend { padding: 0 6px; font-weight: 700; }
+
+/* Synthèse de sécurité : lisible sur ordinateur et téléphone. */
+.security-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin:18px 0 8px; }
+.security-summary .card { padding:16px; display:flex; flex-direction:column; gap:10px; }
+.security-summary strong { font-size:1.7rem; color:#175c52; }
+.security-summary span { color:#526573; font-size:.9rem; }
+.security-attention { color:#9c3d13; }

@@ -1,0 +1,17 @@
+/* Pas de Preflight : la charte historique fournit déjà la remise à zéro.
+   Le préfixe évite les collisions avec .container, .table, .hidden, etc. */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme) prefix(tw);
+@import 'tailwindcss/utilities.css' layer(utilities) prefix(tw) source(none);
+@source '../app';
+@source '../components';
+@source '../lib';
+
+@theme inline {
+  --font-sans: Inter, 'Segoe UI', Arial, sans-serif;
+  --color-primary: var(--p);
+  --color-surface: var(--card);
+  --color-muted: var(--text2);
+  --color-border: var(--bdr);
+  --radius-panel: var(--rad);
+}

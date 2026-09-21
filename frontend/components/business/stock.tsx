@@ -1,4 +1,5 @@
 'use client';
+import { ScreenTitle } from './screen-presentation';
 import { useCallback } from 'react';
 import { DataTable } from './data-table';
 import { ErrorNotice, number, useResource, type ScreenProps } from './shared';
@@ -12,7 +13,7 @@ export function Stock({ bridge, state }: ScreenProps) {
   }, [bridge, state.companyId]);
   const { data, busy, error, refresh } = useResource(load);
   return <>
-    <div className="audit-head"><div><h2>État du stock</h2><p className="muted">Quantités et valorisation au coût moyen pondéré · société active</p></div><div className="audit-actions"><button className="btn" disabled={busy} onClick={refresh}>Actualiser</button></div></div>
+    <div className="audit-head"><div><ScreenTitle>État du stock</ScreenTitle><p className="muted">Quantités et valorisation au coût moyen pondéré · société active</p></div><div className="audit-actions"><button className="btn" disabled={busy} onClick={refresh}><i className="ti ti-refresh" aria-hidden="true" /> Actualiser</button></div></div>
     <ErrorNotice error={error ? `Le stock n’a pas pu être actualisé : ${error} Les valeurs déjà affichées peuvent être anciennes.` : ''} />
     {busy && <p role="status">Actualisation du stock…</p>}
     {data && <>

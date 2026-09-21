@@ -1,0 +1,111 @@
+/* Adaptation React de la charte d'origine. Les règles ci-dessous sont communes
+   aux écrans métier ; les noms pc-* restent ceux de la comptabilité historique. */
+.native-workspace { min-width:0; }
+.native-workspace h2 { font-size:17px; line-height:1.4; }
+.native-workspace h3 { font-size:14px; line-height:1.4; }
+.native-workspace > h2 { margin-bottom:14px; }
+.native-workspace > p { line-height:1.65; margin-bottom:14px; }
+.native-workspace .audit-head { gap:10px; margin-bottom:18px; }
+.native-workspace .audit-head > h2, .native-workspace .audit-head > div:first-child:has(h2) { margin-right:auto; }
+.native-workspace .audit-head h2 { margin:0; display:flex; align-items:center; gap:8px; }
+.native-workspace .audit-head p { font-size:12px; margin-top:5px; }
+.native-workspace .audit-filters > button { align-self:end; }
+.native-workspace .business-toolbar { padding:14px 16px; border:1px solid var(--bdr); border-radius:var(--rad); background:var(--card); margin:16px 0; gap:10px; }
+.native-workspace .business-toolbar .business-field { margin:0; }
+.native-workspace .business-toolbar:empty { display:none; }
+.native-workspace .card-body > .business-toolbar { padding:0; border:0; border-radius:0; }
+.native-workspace .rh-intro h2 { font-size:24px; }
+.native-workspace .hotel-room-chips { border:0; padding:0; background:none; }
+.native-workspace .hotel-room-chips .btn { border-radius:24px; background:var(--pl); color:var(--p); border:0; font-weight:700; }
+.native-workspace .business-toolbar label { font-size:11px; gap:5px; color:var(--text2); }
+.native-workspace .business-toolbar input, .native-workspace .business-toolbar select { min-height:36px; }
+.native-workspace .business-toolbar:has(>button[aria-pressed]):not(:has(input,select)) { padding:0; background:transparent; border:0; border-bottom:1px solid var(--bdr); border-radius:0; gap:4px; }
+.native-workspace .business-toolbar > button[aria-pressed] { border:0; border-bottom:2px solid transparent; border-radius:0; background:transparent; color:var(--text2); padding:9px 16px; }
+.native-workspace .business-toolbar > button[aria-pressed=true] { color:var(--p); border-bottom-color:var(--p); }
+.native-workspace .caisse-card:not(button) { cursor:default; }
+.native-workspace .caisse-card .business-toolbar { border:0; padding:0; margin:12px 0 0; background:transparent; }
+.native-workspace .caisse-card > p { margin:0 0 8px; font-size:11px; text-transform:uppercase; letter-spacing:.035em; }
+.native-workspace .caisse-card > strong { font-size:28px; color:var(--text); line-height:1.2; }
+.native-workspace .caisse-card:has(>strong) { padding:18px; border-radius:var(--rad); border-top:3px solid var(--p); }
+.native-workspace .native-list { margin:18px 0; min-width:0; }
+.native-list .card-hdr { gap:12px; }
+.native-list .card-hdr-title { font-size:13px; margin:0; }
+.native-list .list-tools { border-radius:0; }
+.native-list .managed-list { border-collapse:separate; border-spacing:0; }
+.native-list .managed-list th { padding:11px 14px; font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--text3); }
+.native-list .managed-list td { padding:12px 14px; font-size:12px; vertical-align:middle; }
+.native-list .managed-list .num-cell { font-size:12px; }
+.native-list .native-list-actions > div, .native-list .native-list-actions .audit-actions { display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-start; }
+.native-list .native-list-actions .btn { font-size:11px; min-height:30px; padding:5px 9px; }
+.native-list .native-list-actions { min-width:135px; }
+.native-list .pill { white-space:nowrap; }
+.native-list .st-rejetee { background:#fde9e6; color:#a34038; }
+.business-dialog .business-field, .native-workspace .business-field { gap:5px; margin:0 0 16px; font-size:11px; font-weight:700; color:var(--text2); letter-spacing:.02em; text-transform:uppercase; }
+.business-dialog .business-field input, .business-dialog .business-field select, .business-dialog .business-field textarea,
+.native-workspace .business-field input, .native-workspace .business-field select, .native-workspace .business-field textarea { font-size:13px; font-weight:400; letter-spacing:normal; text-transform:none; color:var(--text); }
+.business-dialog .business-form-grid, .native-workspace .business-form-grid { gap:0 16px; }
+.business-dialog fieldset.card { padding:14px; margin:12px 0; }
+.business-dialog fieldset.card legend { padding:0 6px; color:var(--p); font-size:12px; font-weight:700; }
+.business-dialog section > h3 { margin:12px 0 8px; font-size:14px; }
+.business-dialog section + .banner { margin-top:16px; }
+.business-dialog > header h2 { font-size:18px; }
+.business-dialog .business-table th, .business-dialog .business-table td { padding:10px 12px; }
+.business-dialog .native-list { margin:16px 0; }
+.business-dialog .native-list .card-hdr-title { font-size:13px; }
+.native-workspace .pc-filters { margin-bottom:14px; }
+.native-workspace .pc-group-hdr { font-size:12px; line-height:1.5; }
+.screen-title { display:flex; gap:8px; align-items:center; }
+.native-workspace .tabs { margin-bottom:18px; overflow-x:auto; }
+.native-workspace .tabs button { white-space:nowrap; }
+.native-workspace .pos-grid .card-body > label { display:block; margin-bottom:12px; font-size:11px; font-weight:600; color:var(--text2); }
+.native-workspace .pos-grid .card-body > label :is(input,select) { margin-top:5px; font-weight:400; }
+.native-workspace .pos-articles { margin-top:14px; }
+.native-workspace .pos-grid fieldset.card { padding:12px; margin:12px 0; }
+.native-workspace .pos-grid fieldset.card legend { font-size:12px; font-weight:700; padding:0 5px; }
+.pc-filters .card-body { padding:16px; }
+.pc-search { flex:1 1 280px; }
+.pc-min { width:110px; }
+.pc-date { width:150px; }
+.pc-filter-count { margin-left:auto; font-size:12px; white-space:nowrap; }
+.pc-toggle { display:flex; align-items:center; gap:12px; flex:1; min-width:0; border:0; padding:0; background:none; color:inherit; font:inherit; text-align:left; cursor:pointer; }
+.pc-toggle > .num-cell { font-weight:700; color:var(--p); white-space:nowrap; }
+.pc-entry-date { font-size:11px; white-space:nowrap; }
+.pc-toggle .pc-lib { min-width:0; overflow-wrap:anywhere; }
+.pc-lib small { font-size:10px; }
+.pc-lines-wrap { overflow-x:auto; }
+.pc-lines { width:100%; border-collapse:collapse; font-size:12px; }
+.pc-lines th { text-align:left; padding:10px; font-size:10px; color:var(--text3); text-transform:uppercase; letter-spacing:.04em; }
+.pc-lines td { border-bottom:1px solid var(--bdr); }
+.pc-lines tr:last-child td { border-bottom:0; }
+.pc-lines tr:nth-child(odd) { background:#fafbf9; }
+.pc-lines .right { text-align:right; white-space:nowrap; }
+.pc-lines td:nth-child(2) { width:140px; min-width:120px; }
+.pc-compte { width:120px; max-width:100%; }
+.pc-debit { background:#e0f5ef; color:#007a64; }
+.pc-credit { background:#fff0d9; color:#9c600c; }
+.pc-line-actions .btn + .btn { margin-top:5px; }
+.pc-hint { line-height:1.6; }
+.pc-detail-tools { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.pc-detail-tools .btn { font-size:11px; min-height:28px; padding:4px 8px; }
+.pc-footer { margin-top:16px; align-items:center; }
+.pc-footer .muted { font-size:11px; }
+.pc-piece[hidden], .pc-group[hidden] { display:none; }
+.pc-toggle:focus-visible { outline:2px solid var(--p); outline-offset:5px; border-radius:4px; }
+@media(max-width:1100px) {
+  .pc-head { gap:8px; }
+  .pc-toggle { gap:8px; }
+  .pc-toggle .pc-lib { font-size:12px; }
+}
+@media(max-width:700px) {
+  .pc-head { flex-wrap:wrap; }
+  .pc-toggle { flex-basis:100%; flex-wrap:wrap; }
+  .pc-toggle .pc-lib { flex-basis:100%; padding-left:23px; }
+  .pc-head .pc-mt { margin-left:auto; }
+  .pc-search { flex-basis:100%; }
+  .pc-filter-count { flex-basis:100%; }
+  .pc-lines { min-width:610px; }
+  .native-workspace .audit-head .audit-actions { justify-content:flex-start; }
+  .native-workspace .caisse-cards { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+@media(max-width:420px) { .native-workspace .caisse-cards { grid-template-columns:1fr; } }
+@media print { .pc-filters,.pc-footer,.pc-detail-tools,.pc-line-actions,.pc-head > button { display:none; } }

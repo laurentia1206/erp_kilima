@@ -52,7 +52,8 @@ async function api(path, { method = "GET", body = null, form = false } = {}) {
   const headers = {};
   if (token) headers["Authorization"] = "Bearer " + token;
   let payload = null;
-  if (form) payload = new URLSearchParams(body);
+  if (body instanceof FormData) payload = body;
+  else if (form) payload = new URLSearchParams(body);
   else if (body) { headers["Content-Type"] = "application/json"; payload = JSON.stringify(body); }
   const writing = !["GET", "HEAD"].includes(method.toUpperCase());
   const key = method + path + payload;
@@ -62,14 +63,16 @@ async function api(path, { method = "GET", body = null, form = false } = {}) {
   try {
     let res;
     try { res = await fetch(API + path, { method, headers, body: payload }); }
-    catch { throw new Error(writing
+    catch { const error = new Error(writing
       ? "Connexion interrompue. Vérifiez si l’opération a été enregistrée avant de réessayer."
-      : "Le serveur est inaccessible. Vérifiez votre connexion puis réessayez."); }
+      : "Le serveur est inaccessible. Vérifiez votre connexion puis réessayez."); error.uncertain = writing; throw error; }
     if (res.status === 401 && path !== "/auth/login") { logout(); throw new Error("Session expirée. Veuillez vous reconnecter."); }
     if (!writing && path.includes("societe_id=") && requestedSociete !== currentSocieteId)
       throw new Error("La société active a changé. Rechargez cet écran.");
     const ct = res.headers.get("content-type") || "";
-    const data = ct.includes("json") ? await res.json() : null;
+    let data;
+    try { data = ct.includes("json") ? await res.json() : null; }
+    catch { const error = new Error("Réponse du serveur interrompue. Vérifiez le résultat avant de recommencer."); error.uncertain = writing; throw error; }
     if (!res.ok) {
       const error = new Error(res.status >= 500
         ? "Le serveur n’a pas pu terminer l’opération. Vérifiez son état avant de réessayer."
@@ -227,7 +230,7 @@ function renderSidebar() {
     h += `<div class="nav-group ${collapsed[grp.g] ? "collapsed" : ""}">
       <button type="button" class="nav-group-hdr" aria-expanded="${!collapsed[grp.g]}" data-toggle="${grp.g}">${grp.g}<i class="ti ti-chevron-down chev"></i></button>
       <div class="nav-children">${items.map((it) => `
-        <button type="button" class="nav-item" data-view="${it.v}"><i class="ti ${it.i}"></i> ${me?.super_administrateur&&it.v==="administration"?"Utilisateurs & rôles":me?.super_administrateur&&it.v==="audit"?"Journal des utilisateurs":it.l}
+        <button type="button" class="nav-item" data-view="${it.v}"><i class="ti ${it.i}"></i> ${me?.super_administrateur&&it.v==="administration"?"Utilisateurs & rôles":me?.super_administrateur&&it.v==="audit"?"Journal de sécurité":it.l}
         ${it.badge ? `<span class="nav-badge hidden" data-badge="${it.badge}">0</span>` : ""}</button>`).join("")}</div></div>`;
   }
   const nav = $("#sidebar-nav");
@@ -309,7 +312,7 @@ async function go(view, groupePrefere) {
   document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
   $("#view-" + view).classList.add("active");
   if (!window.KilimaNext) {
-  $("#page-title").textContent = me.super_administrateur&&view==="administration"?"Utilisateurs & rôles":me.super_administrateur&&view==="audit"?"Journal des utilisateurs":(TITLES[view] || [view, ""])[0];
+  $("#page-title").textContent = me.super_administrateur&&view==="administration"?"Utilisateurs & rôles":me.super_administrateur&&view==="audit"?"Journal de sécurité":(TITLES[view] || [view, ""])[0];
   $("#page-sub").textContent = me.super_administrateur&&view==="administration"?"Comptes utilisateurs, rôles et affectations":(TITLES[view] || ["", ""])[1];
   } else window.KilimaNext.publish({preferredGroup:groupePrefere, navigated:true});
   $(".content").scrollTop = 0;

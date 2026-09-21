@@ -18,6 +18,10 @@ export function ERP() {
   const [smallScreen, setSmallScreen] = useState(false);
   const [offline, setOffline] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const contentRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    contentRef.current?.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [state.view, state.companyId, state.user?.id]);
   useEffect(() => {
     let alive = true;
     const update = (event: Event) => {
@@ -90,7 +94,7 @@ export function ERP() {
         </div>
       </header>
       <div id="connection-banner" className={`connection-banner${offline ? '' : ' hidden'}`} role="status">{offline && 'Connexion interrompue. Conservez vos saisies et vérifiez la connexion avant de valider.'}</div>
-      <main id="main-content" className="content" tabIndex={-1}>{VIEWS.map(view => <div key={view} id={`view-${view}`} className={`view${state.view === view ? ' active' : ''}`} data-react-owned={view === 'accueil' || BUSINESS_VIEWS.includes(view) ? 'true' : undefined}>{state.view === view && state.user && bridge ? view === 'accueil' && !state.user.super_administrateur ? <Home key={state.companyId} state={state} bridge={bridge} /> : BUSINESS_VIEWS.includes(view) ? <BusinessScreen key={`${state.user.id}:${state.companyId}:${view}`} state={state} bridge={bridge} /> : null : null}</div>)}</main>
+      <main ref={contentRef} id="main-content" className="content" tabIndex={-1}>{VIEWS.map(view => <div key={view} id={`view-${view}`} className={`view${state.view === view ? ' active' : ''}`} data-react-owned={view === 'accueil' || BUSINESS_VIEWS.includes(view) ? 'true' : undefined}>{state.view === view && state.user && bridge ? view === 'accueil' && !state.user.super_administrateur ? <Home key={state.companyId} state={state} bridge={bridge} /> : BUSINESS_VIEWS.includes(view) ? <BusinessScreen key={`${state.user.id}:${state.companyId}:${view}`} state={state} bridge={bridge} /> : null : null}</div>)}</main>
       </div>
     </div>
     <div id="modal-root" /><div id="react-modal-root" /><div className="toast" id="toast" role="status" aria-live="polite" />

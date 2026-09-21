@@ -1,7 +1,11 @@
 # Frontend Next.js — Kilima Holdings
 
-Next.js 16.3.5, React 19.3 et TypeScript. L'API, les règles métier, les permissions,
+Next.js 16.3.5, React 19.3, TypeScript et Tailwind CSS 4. L'API, les règles métier, les permissions,
 la traçabilité et les documents PDF/Excel restent dans Django.
+
+La [charte d’interface](CHARTE_INTERFACE.md) décrit la reprise de la police,
+des icônes Tabler et des composants historiques. Tailwind est compilé localement,
+avec des classes préfixées `tw:` et sans Preflight pour préserver ces styles.
 
 ## Démarrage local
 
@@ -34,20 +38,23 @@ le minimum déclaré par Next.js est 20.9.
 |---|---|
 | `app/` | App Router, métadonnées, styles compilés et page d'erreur |
 | `components/` | Connexion, navigation, choix de société, accueil et écrans métier React |
-| `components/business/` | Suivi des tâches, audit, stock, taux, articles, chambres ; dialogues, tableaux et rapports partagés |
+| `components/business/` | Pilotage, audit, stocks et inventaires, catalogues, réception et cuisine ; dialogues, tableaux et rapports partagés |
 | `lib/` | Types, liste des vues et chargement unique des modules |
-| `legacy/` | Écrans métier existants et adaptateur de transition vers React |
+| `legacy/` | Services historiques partagés et adaptateur ; rendu métier neutralisé |
 | `scripts/` | Préparation des assets publics |
 | `tests/` | Contrats de l'adaptateur, proxy, filtres, délais, tri et exports CSV |
 | `public/legacy/` | Copie générée des fichiers JS/CSS ; ne pas modifier directement |
 
-Il ne s'agit pas encore d'une réécriture intégrale de tous les formulaires en
-composants React. Les plus de 60 vues métier sont intégrées sans iframe ; leurs
-fonctions existantes sont conservées. React possède l'enveloppe, l'accueil et
-six écrans métier : `pilotage`, `audit`, `stock`, `taux`, `articles`, `hotel-chambres`, avec leurs formulaires,
-dialogues et rapports. Les scripts historiques possèdent le contenu des autres
-vues et leurs fenêtres modales. La conversion future doit se faire vue par vue, avec contrôle
-des droits, de la société active, des saisies, des validations et des exports.
+Les **62 écrans métier du menu sont désormais rendus en React**, avec leurs
+formulaires, dialogues et rapports natifs, en plus de la connexion et de l’accueil.
+Les modules couvrent le pilotage, les réquisitions et validations, la trésorerie,
+la comptabilité, les achats et ventes, le point de vente, les stocks, les RH,
+l’hôtel, la cuisine, le transport, les engins, la maintenance et l’administration.
+
+Les scripts historiques sont encore chargés pour l’authentification, la définition
+des menus et les services partagés de transition. Leurs fonctions de rendu sont
+neutralisées pour les 62 vues ; leur suppression complète est un chantier technique
+séparé. Les API Django et les limites métier existantes restent applicables.
 
 `next-adapter.js` assure cette frontière. Aucun mot de passe, clé Django ou accès
 à la base de données ne doit être ajouté à Next.js. Les décisions d'autorisation

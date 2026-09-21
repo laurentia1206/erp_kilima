@@ -203,6 +203,7 @@ const ModuleUX = (() => {
     if(cardsViews.has(view))root.querySelectorAll(".caisse-cards").forEach(enhanceCards);
   }
   function labelFields(root) {
+    if(!root)return;
     root.querySelectorAll(".form-group").forEach(group=>{
       const label=group.querySelector("label.form-label"), control=group.querySelector("input,select,textarea");
       if(label&&!label.htmlFor&&control){if(!control.id)control.id="labelled-field-"+(++sequence);label.htmlFor=control.id;}
@@ -210,7 +211,7 @@ const ModuleUX = (() => {
   }
   function init() {
     let queued=false;
-    const observe=()=>observer.observe(document.querySelector(".content"),{childList:true,subtree:true});
+    const observe=()=>{const root=document.querySelector(".content");if(root)observer.observe(root,{childList:true,subtree:true});};
     observer=new MutationObserver(()=>{
       if(queued)return;queued=true;
       requestAnimationFrame(()=>{queued=false;observer.disconnect();try{enhanceView(activeView);labelFields(document.querySelector(".content"));}finally{observe();}});

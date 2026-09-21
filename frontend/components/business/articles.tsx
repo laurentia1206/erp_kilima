@@ -1,31 +1,32 @@
 'use client';
+import { ScreenTitle } from './screen-presentation';
 import { useCallback, useRef, useState } from 'react';
 import { DataTable } from './data-table';
 import { Field } from './field';
 import { Dialog, ErrorNotice, message, normalize, useResource, type ScreenProps } from './shared';
 
-interface Article { id: string; code: string; designation: string; nature: string; unite: string; categorie: string; code_barres: string; prix_achat: number; prix_vente: number; assujetti_tva: boolean; taux_tva: number; taux_commission: number; points_fidelite: number; gere_stock: boolean; stock_qte: number; actif: boolean }
+export interface Article { id: string; code: string; designation: string; nature: string; unite: string; categorie: string; code_barres: string; prix_achat: number; prix_vente: number; assujetti_tva: boolean; taux_tva: number; taux_commission: number; points_fidelite: number; gere_stock: boolean; stock_qte: number; actif: boolean }
 const natures: Record<string, string> = { marchandise: 'Marchandise / produit vendu', matiere_premiere: 'Matière première', consommable: 'Consommable' };
 export function Articles({ bridge, state }: ScreenProps) {
   const load = useCallback(() => bridge.api<Article[]>(`/commercial/articles?societe_id=${state.companyId}`), [bridge, state.companyId]);
   const { data, error, busy, refresh } = useResource(load);
   const [editing, setEditing] = useState<Article | 'new' | null>(null), [success, setSuccess] = useState('');
   return <>
-    <div className="audit-head"><div><h2>Catalogue des articles</h2><p className="muted">Articles propres à {state.companies.find(c => c.id === state.companyId)?.nom}. Les autres sociétés conservent leur propre catalogue.</p></div><div className="audit-actions"><button className="btn" disabled={busy} onClick={refresh}>Actualiser</button><button className="btn btn-primary" disabled={busy || !!error} onClick={() => setEditing('new')}>Nouvel article</button></div></div>
+    <div className="audit-head"><div><ScreenTitle>Catalogue des articles</ScreenTitle><p className="muted">Articles propres à {state.companies.find(c => c.id === state.companyId)?.nom}. Les autres sociétés conservent leur propre catalogue.</p></div><div className="audit-actions"><button className="btn" disabled={busy} onClick={refresh}><i className="ti ti-refresh" aria-hidden="true" /> Actualiser</button><button className="btn btn-primary" disabled={busy || !!error} onClick={() => setEditing('new')}>Nouvel article</button></div></div>
     <ErrorNotice error={error} />{success && <p role="status" className="business-success">{success}</p>}{busy && <p role="status">Chargement des articles…</p>}
-    {data && <DataTable bridge={bridge} state={state} title="Catalogue des articles" subtitle="Prix en USD · société active" disabled={busy || !!error} columns={['Code', 'Désignation', 'Nature', 'Catégorie', 'Prix achat', 'Prix vente', 'TVA', 'Stock', 'Unité']} rows={data.map(a => [a.code, a.designation, natures[a.nature] || a.nature, a.categorie || '', a.prix_achat, a.prix_vente, a.assujetti_tva ? `${a.taux_tva} %` : 'Exonéré', a.gere_stock ? a.stock_qte : 'Non géré', a.unite])} actions={row => <button className="btn btn-sm" disabled={busy || !!error} onClick={() => setEditing(data.find(a => a.code === row[0])!)} aria-label={`Modifier l’article ${row[0]}`}>Modifier</button>} />}
+    {data && <DataTable bridge={bridge} state={state} title="Catalogue des articles" subtitle="Prix en USD · société active" disabled={busy || !!error} columns={['Code', 'Désignation', 'Nature', 'Catégorie', 'Prix achat', 'Prix vente', 'TVA', 'Stock', 'Unité']} rows={data.map(a => [a.code, a.designation, natures[a.nature] || a.nature, a.categorie || '', a.prix_achat, a.prix_vente, a.assujetti_tva ? `${a.taux_tva} %` : 'Exonéré', a.gere_stock ? a.stock_qte : 'Non géré', a.unite])} actions={row => <button className="btn btn-sm" disabled={busy || !!error} onClick={() => setEditing(data.find(a => a.code === row[0])!)} aria-label={`Modifier l’article ${row[0]}`}><i className="ti ti-edit" aria-hidden="true" /> Modifier</button>} />}
     {editing && <ArticleEditor key={editing === 'new' ? 'new' : editing.id} bridge={bridge} state={state} article={editing === 'new' ? null : editing} articles={data || []} onClose={() => setEditing(null)} onExisting={setEditing} onSaved={() => { setEditing(null); setSuccess('Article enregistré dans la société active.'); refresh(); }} />}
   </>;
 }
-function ArticleEditor({ bridge, state, article, articles, onClose, onSaved, onExisting }: ScreenProps & { article: Article | null; articles: Article[]; onClose: () => void; onSaved: () => void; onExisting: (a: Article) => void }) {
+export function ArticleEditor({ bridge, state, article, articles, onClose, onSaved, onExisting }: ScreenProps & { article: Article | null; articles: Article[]; onClose: () => void; onSaved: (article: Article) => void; onExisting: (a: Article) => void }) {
   const load = useCallback(async () => article ? { rate: article.taux_tva, warning: '' } : bridge.api<{ tva_taux_defaut: number }>(`/comptabilite/comptes-config?societe_id=${state.companyId}`).then(d => ({ rate: d.tva_taux_defaut, warning: '' })).catch(() => ({ rate: 16, warning: 'Le taux par défaut de la société n’a pas pu être chargé. Vérifiez le taux proposé avant de créer cet article.' })), [bridge, state.companyId, article]);
   const { data, busy } = useResource(load);
   const [saving, setSaving] = useState(false);
-  return <Dialog bridge={bridge} title={article ? `Article ${article.code}` : 'Nouvel article'} busy={saving} onClose={onClose} footer={close => <><button className="btn" disabled={saving} onClick={close}>Annuler</button><button className="btn btn-primary" type="submit" form="article-form" disabled={!data || busy || saving}>{saving ? 'Enregistrement…' : article ? 'Enregistrer' : 'Créer'}</button></>}>
+  return <Dialog bridge={bridge} title={article ? `Article ${article.code}` : 'Nouvel article'} busy={saving} onClose={onClose} footer={close => <><button className="btn" disabled={saving} onClick={close}><i className="ti ti-x" aria-hidden="true" /> Annuler</button><button className="btn btn-primary" type="submit" form="article-form" disabled={!data || busy || saving}>{saving ? 'Enregistrement…' : article ? 'Enregistrer' : 'Créer'}</button></>}>
     {busy ? <p role="status">Préparation du formulaire…</p> : data && <ArticleForm bridge={bridge} state={state} article={article} articles={articles} defaultRate={data.rate} warning={data.warning} saving={saving} setSaving={setSaving} onSaved={onSaved} onExisting={onExisting} />}
   </Dialog>;
 }
-function ArticleForm({ bridge, article, articles, defaultRate, warning, saving, setSaving, onSaved, onExisting, state }: ScreenProps & { article: Article | null; articles: Article[]; defaultRate: number; warning: string; saving: boolean; setSaving: (v: boolean) => void; onSaved: () => void; onExisting: (a: Article) => void }) {
+function ArticleForm({ bridge, article, articles, defaultRate, warning, saving, setSaving, onSaved, onExisting, state }: ScreenProps & { article: Article | null; articles: Article[]; defaultRate: number; warning: string; saving: boolean; setSaving: (v: boolean) => void; onSaved: (article: Article) => void; onExisting: (a: Article) => void }) {
   const [values, setValues] = useState({ code: article?.code || '', designation: article?.designation || '', unite: article?.unite || 'unité', categorie: article?.categorie || '', code_barres: article?.code_barres || '', nature: article?.nature || 'marchandise', prix_achat: String(article?.prix_achat ?? 0), prix_vente: String(article?.prix_vente ?? 0), taux_tva: String(article?.taux_tva ?? defaultRate), taux_commission: String(article?.taux_commission ?? 0), points_fidelite: String(article?.points_fidelite ?? 0), compte_achat: '601', compte_vente: '701', compte_stock: '31' });
   const [vat, setVat] = useState(article?.assujetti_tva ?? true), [stock, setStock] = useState(article?.gere_stock ?? true), [error, setError] = useState(''), [canConfirm, setCanConfirm] = useState(false), [confirmed, setConfirmed] = useState(false);
   const pending = useRef(false);
@@ -36,8 +37,8 @@ function ArticleForm({ bridge, article, articles, defaultRate, warning, saving, 
     pending.current = true; setSaving(true); setError('');
     const common = { designation: values.designation.trim(), nature: values.nature, categorie: values.categorie.trim(), code_barres: values.code_barres.trim(), prix_achat: Number(values.prix_achat), prix_vente: Number(values.prix_vente), assujetti_tva: vat, taux_tva: vat ? Number(values.taux_tva) : 0, taux_commission: Number(values.taux_commission), points_fidelite: Number(values.points_fidelite), gere_stock: stock, confirmer_homonyme: canConfirm && confirmed };
     try {
-      await bridge.api(article ? `/commercial/articles/${article.id}` : `/commercial/articles?societe_id=${state.companyId}`, { method: article ? 'PATCH' : 'POST', body: article ? common : { ...common, code: values.code.trim(), unite: values.unite.trim(), compte_achat: values.compte_achat.trim(), compte_vente: values.compte_vente.trim(), compte_stock: values.compte_stock.trim() } });
-      onSaved();
+      const saved = await bridge.api<Article>(article ? `/commercial/articles/${article.id}` : `/commercial/articles?societe_id=${state.companyId}`, { method: article ? 'PATCH' : 'POST', body: article ? common : { ...common, code: values.code.trim(), unite: values.unite.trim(), compte_achat: values.compte_achat.trim(), compte_vente: values.compte_vente.trim(), compte_stock: values.compte_stock.trim() } });
+      onSaved(saved);
     } catch (cause) { setError(message(cause)); const data = (cause as { data?: { can_confirm_similar?: boolean | string } }).data; setCanConfirm(data?.can_confirm_similar === true || data?.can_confirm_similar === 'True'); }
     finally { pending.current = false; setSaving(false); }
   }}>
