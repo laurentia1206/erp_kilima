@@ -1,2 +1,0 @@
-CONFIDENTIEL — base de tests, comptes (mots de passe hachés), données RH, finance et justificatifs. ZIP non chiffré : conserver en lieu sûr et transmettre uniquement par canal sécurisé. Aucun .env inclus.
-Extraire avec le ZIP du code dans le même dossier parent pour reprendre les tests Windows. Ne pas importer ces fichiers SQLite dans PostgreSQL.

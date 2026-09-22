@@ -1,5 +1,0 @@
-# Pilote optionnel pour préparer la connexion MySQL.
-# Les migrations d'audit doivent encore être adaptées avant une exploitation MySQL.
-# Depuis backend/ : python -m pip install -r requirements-mysql.txt
--r requirements.txt
-mysqlclient>=2.2.4,<3
