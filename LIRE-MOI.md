@@ -57,8 +57,9 @@ Faire des sauvegardes régulières de la base de tests et de `backend/uploads/`.
 
 ## Pour l’informaticien
 
-Les fichiers `compose.yaml`, `.env.docker.example`, `.dockerignore` et `docker/`
-préparent le démarrage en conteneurs Linux. Lire **[le guide Docker](docker/README.md)**
+Les fichiers `docker-compose.yaml`, `.env.docker.example`, `.dockerignore`,
+`backend/Dockerfile` et `frontend/Dockerfile` préparent le démarrage en conteneurs
+Linux. Lire **[le guide Docker](DOCKER.md)**
 pour l'installation, les secrets, HTTPS, la sauvegarde et les limites de validation.
 La reprise des bases SQLite vers PostgreSQL n'est pas automatique.
 

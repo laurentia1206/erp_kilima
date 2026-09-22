@@ -66,9 +66,9 @@ def main():
     stage = ROOT / '.build' / ('archives-docker-' + stamp)
     stage.mkdir(parents=True)
     files = {}
-    for folder in ('backend', 'frontend', 'database', 'docs', 'docker', 'scripts'):
+    for folder in ('backend', 'frontend', 'database', 'docs', 'scripts'):
         files.update(sources(folder))
-    for name in ('.gitignore', '.dockerignore', '.env.docker.example', 'compose.yaml',
+    for name in ('.gitignore', '.dockerignore', '.env.docker.example', 'docker-compose.yaml', 'DOCKER.md',
                  'LIRE-MOI.md', 'Installer-Windows.bat', 'Demarrer-tests.bat',
                  'demarrer_tests.py', 'Demarrer-Next.bat', 'demarrer_next.py',
                  'Cahier_des_Charges_ERP_KILIMA_HOLDINGS_v1.docx'):
@@ -107,8 +107,10 @@ def main():
                 if storage and 'backend/uploads/' + storage.replace('\\', '/') not in private:
                     raise RuntimeError('Pièce jointe manquante ; livraison privée annulée.')
 
-    docker = {k: v for k, v in files.items() if k.startswith('docker/') or k in
-              {'compose.yaml', '.dockerignore', '.env.docker.example'}}
+    docker = {k: v for k, v in files.items() if k.startswith('backend/deployment/') or k in
+              {'docker-compose.yaml', '.dockerignore', '.env.docker.example', 'DOCKER.md',
+               'backend/Dockerfile', 'backend/requirements-production.txt',
+               'frontend/Dockerfile', 'frontend/nginx.conf'}}
     reports = [
         archive(out / f'ERP-Kilima-code-complet-{stamp}.zip', files),
         archive(out / f'ERP-Kilima-Docker-{stamp}.zip', docker),

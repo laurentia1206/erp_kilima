@@ -4,8 +4,6 @@
 !backend/**
 !frontend/
 !frontend/**
-!docker/
-!docker/**
 **/.env
 **/.env.*
 **/node_modules

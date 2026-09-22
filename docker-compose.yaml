@@ -1,0 +1,126 @@
+name: kilima
+
+x-backend: &backend
+  image: kilima-backend:local
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+  environment:
+    ENVIRONMENT: production
+    DEBUG: "false"
+    SECRET_KEY: ${SECRET_KEY:?Renseigner SECRET_KEY dans .env.docker}
+    POSTGRES_DB: ${POSTGRES_DB:-kilima}
+    POSTGRES_USER: ${POSTGRES_USER:-kilima}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Renseigner POSTGRES_PASSWORD dans .env.docker}
+    DB_SSLMODE: disable
+    DB_CONN_MAX_AGE: "60"
+    ALLOWED_HOSTS: backend,localhost,127.0.0.1
+    UPLOADS_DIR: /app/backend/uploads
+    BACKUP_ON_STARTUP: "false"
+    MAX_UPLOAD_MB: "10"
+    ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-720}
+    # HTTPS est terminé et imposé par le proxy de l'hébergeur.
+    SECURE_SSL_REDIRECT: "false"
+    TRUST_PROXY_HTTPS: "false"
+  volumes:
+    - uploads:/app/backend/uploads
+  networks: [private]
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
+services:
+  db:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-kilima}
+      POSTGRES_USER: ${POSTGRES_USER:-kilima}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Renseigner POSTGRES_PASSWORD dans .env.docker}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [private]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+  migrate:
+    <<: *backend
+    restart: "no"
+    command: [python, manage.py, migrate, --noinput]
+    depends_on:
+      db: {condition: service_healthy}
+
+  backend:
+    <<: *backend
+    restart: unless-stopped
+    command: [gunicorn, kilima.wsgi:application, --bind, "0.0.0.0:8000", --workers, "2", --timeout, "120", --access-logfile, "-", --error-logfile, "-"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD, python, /app/backend/deployment/healthcheck.py]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+
+  frontend:
+    image: kilima-frontend:local
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        APP_URL: ${APP_URL:-https://kilimaholdings.com}
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      APP_URL: ${APP_URL:-https://kilimaholdings.com}
+      DJANGO_API_URL: http://backend:8000
+      API_MAX_BODY_MB: "16"
+    networks: [private]
+    depends_on:
+      backend: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+  web:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8080}:8080"
+    volumes:
+      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks: [private]
+    depends_on:
+      frontend: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/healthz]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+volumes:
+  postgres_data:
+  uploads:
+
+networks:
+  private:

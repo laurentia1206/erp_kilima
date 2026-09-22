@@ -1,0 +1,3 @@
+# Serveur Linux, séparé des dépendances de développement Windows.
+-r requirements.txt
+gunicorn==26.2.0
