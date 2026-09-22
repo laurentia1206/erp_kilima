@@ -75,11 +75,14 @@ services:
     build:
       context: .
       dockerfile: docker/frontend.Dockerfile
+      args:
+        APP_URL: ${APP_URL:-https://kilimaholdings.com}
     restart: unless-stopped
     init: true
     environment:
       NODE_ENV: production
       NEXT_TELEMETRY_DISABLED: "1"
+      APP_URL: ${APP_URL:-https://kilimaholdings.com}
       DJANGO_API_URL: http://backend:8000
       API_MAX_BODY_MB: "16"
     networks: [private]

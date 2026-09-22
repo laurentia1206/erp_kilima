@@ -32,6 +32,25 @@ changer `DJANGO_API_URL`. Le lanceur de tests impose l'API locale afin de ne pas
 accéder accidentellement à un serveur distant. Node.js 24 LTS est utilisé ici ;
 le minimum déclaré par Next.js est 20.9.
 
+## Adresses du frontend
+
+| Environnement | Adresse publique | Configuration |
+|---|---|---|
+| Développement | `http://127.0.0.1:3000` | Copier `.env.example` en `.env.local` |
+| Production | `https://kilimaholdings.com` | Copier `.env.production.example` en `.env.production.local` hors Docker |
+
+`APP_URL` définit l'adresse de référence des métadonnées du frontend. La navigation
+et les appels `/api/...` restent relatifs au site ouvert, aussi bien en local que
+sur le domaine de production. `DJANGO_API_URL` reste l'adresse interne de Django :
+ne pas y mettre `https://kilimaholdings.com`, qui pointerait le relais vers lui-même.
+
+En production hors Docker, retirer les valeurs de développement de `.env.local`
+(ce fichier a priorité). Avec Docker, `APP_URL` est fourni par `.env.docker` à la
+construction et à l'exécution. Reconstruire le frontend après sa modification.
+Le lanceur `demarrer_next.py` impose l'adresse locale et adapte son port si
+`--port` est utilisé. Le domaine doit être relié au serveur et son certificat HTTPS installé chez
+l'hébergeur ; ces fichiers ne modifient pas le DNS.
+
 ## Structure et état de migration
 
 | Dossier | Rôle |

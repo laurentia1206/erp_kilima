@@ -59,7 +59,8 @@ def main():
             else:
                 raise RuntimeError('Le serveur Django ne répond pas.')
         print(f'Ouvrir http://127.0.0.1:{args.port}/ — Ctrl+C pour arrêter.', flush=True)
-        env = {**os.environ, 'DJANGO_API_URL': api_url, 'NEXT_TELEMETRY_DISABLED': '1'}
+        env = {**os.environ, 'DJANGO_API_URL': api_url,
+               'APP_URL': f'http://127.0.0.1:{args.port}', 'NEXT_TELEMETRY_DISABLED': '1'}
         app = subprocess.Popen([node, 'node_modules/next/dist/bin/next', 'dev', '--webpack', '--hostname', '127.0.0.1', '--port', str(args.port)], cwd=frontend, env=env)
         children.append(app)
         app.wait()

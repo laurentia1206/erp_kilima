@@ -80,7 +80,12 @@ Leur reprise et la qualification des circuits complets précèdent l'exploitatio
 
 ## HTTPS / Sygma Cloud
 
-Configurer le domaine et le certificat chez l'hébergeur, puis un proxy HTTPS vers
+Le domaine de production du frontend est `https://kilimaholdings.com`, défini par
+`APP_URL` dans `.env.docker`. Il est fourni à la construction de l'image Next.js ;
+reconstruire l'image après un changement. Le développement Windows conserve
+`http://127.0.0.1:3000` dans `frontend/.env.example`.
+
+Configurer ce domaine et le certificat chez l'hébergeur, puis un proxy HTTPS vers
 `http://127.0.0.1:8080`, avec redirection HTTP vers HTTPS. Ne publier que 80/443.
 Le proxy doit conserver le Host d'origine et imposer les en-têtes de transfert.
 `DJANGO_API_URL=http://backend:8000` reste une adresse privée au serveur.
