@@ -1,2 +1,0 @@
-# Serveur Linux, séparé des dépendances de développement Windows.
-gunicorn==26.2.0
