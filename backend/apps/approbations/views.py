@@ -323,6 +323,22 @@ class RequisitionViewSet(MetierModelViewSet):
 # ── G02 Ordres de dépense ────────────────────────────────────────────
 
 
+ROLES_DECAISSEMENT_DEFAUT = {"caisse": "CAISSIER_CENTRAL,CAISSIER_VENDEUR",
+                             "banque": "COMPTABLE,DFI"}
+
+
+def _roles_decaissement(societe_id, mode_paiement: str) -> set[str]:
+    """Rôles autorisés à exécuter un décaissement, paramétrables par société
+    (clés decaissement.roles_caisse / decaissement.roles_banque, codes de
+    rôles séparés par des virgules) — les codes de rôles variant d'une
+    installation à l'autre, le figé en dur bloquait les caissiers."""
+    mode = "banque" if mode_paiement == "banque" else "caisse"
+    valeur = services.get_parametre(f"decaissement.roles_{mode}", societe_id,
+                                    ROLES_DECAISSEMENT_DEFAUT[mode])
+    codes = {r.strip().upper() for r in (valeur or "").split(",") if r.strip()}
+    return codes or {r.strip() for r in ROLES_DECAISSEMENT_DEFAUT[mode].split(",")}
+
+
 def _creer_ordre(request):
     payload = request.data or {}
     req = Requisition.objects.filter(id=payload.get("requisition_id")).first()
@@ -395,6 +411,8 @@ class OrdreDepenseViewSet(MetierModelViewSet):
     def _traiter_ordres_depense(self, request):
         if request.method == "POST":
             return _creer_ordre(request)
+        # (les rôles autorisés à décaisser sont renvoyés avec chaque ordre :
+        # l'écran « Paiements à exécuter » s'aligne sur le paramétrage réel)
         # GET : même liste que phase 1 (déplacée ici pour partager le chemin avec POST)
         sid = _societe_param(request)
         assert_acces_societe(request.user, sid)
@@ -416,7 +434,9 @@ class OrdreDepenseViewSet(MetierModelViewSet):
                         "palier_applique": o.palier_applique, "statut": o.statut,
                         "mode_paiement": o.mode_paiement, "mode_decaissement": o.mode_decaissement,
                         "motif": o.motif, "beneficiaire": benef.nom if benef else None,
-                        "beneficiaire_tiers_id": str(o.beneficiaire_tiers_id)})
+                        "beneficiaire_tiers_id": str(o.beneficiaire_tiers_id),
+                        "decaissement_roles": sorted(
+                            _roles_decaissement(sid, o.mode_paiement))})
         return Response(out)
 
 
@@ -528,7 +548,7 @@ class OrdreDepenseViewSet(MetierModelViewSet):
         societe = Societe.objects.filter(id=odp.societe_id).first()
         caisse = sess_c = None
         if odp.mode_paiement == "banque":
-            assert_role(roles, {"COMPTABLE", "DFI"})
+            assert_role(roles, _roles_decaissement(odp.societe_id, "banque"))
             if not compte_bancaire_id:
                 return refus({"detail": "compte_bancaire_id requis (paiement par banque)."},
                                 status=400)
@@ -538,7 +558,7 @@ class OrdreDepenseViewSet(MetierModelViewSet):
             compte_credit = banque.compte_comptable or "521"
             journal = ("BQ", "Banque", "banque")
         else:
-            assert_role(roles, {"CAISSIER_CENTRAL", "CAISSIER_VENDEUR"})
+            assert_role(roles, _roles_decaissement(odp.societe_id, "caisse"))
             if not caisse_id:
                 return refus({"detail": "caisse_id requis (paiement par caisse)."}, status=400)
             caisse = Caisse.objects.filter(id=caisse_id).first()
