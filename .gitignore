@@ -29,3 +29,4 @@ data/*.db
 # Divers
 *.log
 .DS_Store
+data/backups/
