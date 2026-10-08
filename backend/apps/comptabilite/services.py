@@ -26,6 +26,9 @@ DEFAUT = {
     "compte_vente_transport": "706", "compte_sous_traitance": "612",
     "compte_vente_location": "7073", "compte_vente_hebergement": "7062",
     "manquants_charge": "658", "manquants_produit": "758",
+    # Espèces des tickets POS : compte de transit (585 virements de fonds).
+    # La remise en caisse est passée à la clôture de session, pour revue comptable.
+    "compte_tampon_pos": "585",
 }
 
 

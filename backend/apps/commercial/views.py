@@ -1012,7 +1012,9 @@ class ListePrixViewSet(MetierModelViewSet):
         liste = ListePrix.objects.filter(id=liste_id).first()
         if not liste:
             return refus({"detail": "Liste introuvable."}, status=404)
-        _acces(request, liste.societe_id)
+        # Lecture ouverte aux caissiers : le POS applique les prix de la liste.
+        _acces(request, liste.societe_id,
+               ROLES_POS if request.method == "GET" else ROLES)
         if request.method == "POST":
             payload = request.data or {}
             t = TarifArticle.objects.filter(liste_prix_id=liste_id,
@@ -1070,7 +1072,9 @@ class PointVenteViewSet(MetierModelViewSet):
 
     def _traiter_points_vente(self, request):
         sid = _societe_param(request)
-        _acces(request, sid)
+        # Lecture ouverte aux caissiers : l'écran POS liste les points de vente
+        # avant de vendre. La création reste réservée (COMPTABLE / DFI).
+        _acces(request, sid, ROLES_POS if request.method == "GET" else ROLES)
         if request.method == "POST":
             payload = request.data or {}
             code = (payload.get("code") or "").strip().upper()
@@ -1141,7 +1145,10 @@ class ArticleViewSet(MetierModelViewSet):
     @transaction.atomic
     def _traiter_articles(self, request):
         sid = _societe_param(request)
-        _acces(request, sid)
+        # Lecture ouverte aux caissiers : le POS affiche le catalogue pour
+        # vendre. La création/modification d'articles reste COMPTABLE / DFI
+        # (le POS ouvre son propre formulaire de création, qui exigera ce rôle).
+        _acces(request, sid, ROLES_POS if request.method == "GET" else ROLES)
         if request.method == "POST":
             payload = request.data or {}
             code = (payload.get("code") or "").strip().upper()
@@ -1548,8 +1555,11 @@ class PointDeVenteViewSet(MetierViewSet):
             fac.save()
 
             # ── Écriture de vente ────────────────────────────────────────
+            # Les espèces des tickets passent par le compte tampon POS : la
+            # caisse comptable (57x) n'est mouvementée qu'à la clôture de
+            # session, par une remise unique que le comptable valide.
             compte_par_mode = {
-                "espece": caisse.compte_comptable,
+                "espece": comptabilite._compte("compte_tampon_pos", sid),
                 "mobile_money": comptabilite._compte("compte_mobile_money", sid),
                 "banque": comptabilite._compte("compte_banque", sid),
                 "credit": comptabilite._compte("compte_client", sid),
@@ -1593,7 +1603,9 @@ class PointDeVenteViewSet(MetierViewSet):
                     qte=1, prix_unitaire=t_ttc, montant_usd=t_ttc,
                     origine=origine_pos, facture_pos_id=fac.id,
                     created_by=request.user.id, created_at=services.maintenant())
-            statut_piece = intersociete_lib._statut_piece(sid, "vente")
+            # Vente POS : écriture validée directement (pas de revue ticket par
+            # ticket) — le comptable valide la remise en caisse à la clôture.
+            statut_piece = "valide"
             ecr = comptabilite.comptabiliser_vente_pos(fac, lm_list, encaissements,
                                                        request.user.id,
                                                        statut=statut_piece)
@@ -1818,13 +1830,15 @@ class PointDeVenteViewSet(MetierViewSet):
             avoir.marge = round(t_ht - valeur_stock, 2)
             avoir.save()
 
-            compte_remb = caisse.compte_comptable if mode == "espece" \
-                else comptabilite._compte("compte_client", sid)
+            # Remboursement espèces : au tampon POS, comme la vente d'origine —
+            # la remise nette en caisse se régularise à la clôture de session.
+            compte_remb = comptabilite._compte("compte_tampon_pos", sid) \
+                if mode == "espece" else comptabilite._compte("compte_client", sid)
             remboursements = [{"compte": compte_remb, "montant_usd": t_ttc,
                                "tiers_id": tiers.id if mode == "credit" else None,
                                "libelle": f"Remboursement {numero}" if mode == "espece"
                                else f"Avoir {numero} — {tiers.nom}"}]
-            statut_piece = intersociete_lib._statut_piece(avoir.societe_id, "vente")
+            statut_piece = "valide"
             ecr = comptabilite.comptabiliser_retour_pos(avoir, la_list, remboursements,
                                                         request.user.id,
                                                         statut=statut_piece)

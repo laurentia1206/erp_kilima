@@ -488,13 +488,48 @@ class CaisseViewSet(MetierModelViewSet):
         sess.date_cloture = services.maintenant()
         sess.cloture_par = request.user.id
         sess.save()
+
+        # ── Remise des espèces POS : tampon → caisse, à valider par le
+        # comptable (les tickets ont crédité les ventes avec D sur le compte
+        # tampon ; la caisse comptable n'est mouvementée qu'ici, en une fois).
+        pos_net_usd = 0.0
+        for sens_, tot_ in (MouvementCaisse.objects
+                            .filter(session_id=sess.id,
+                                    nature__in=["Vente POS", "Monnaie rendue POS",
+                                                "Retour POS"])
+                            .values_list("sens").annotate(total=Sum("montant_usd"))
+                            .values_list("sens", "total")):
+            pos_net_usd += float(tot_ or 0) if sens_ == "entree" else -float(tot_ or 0)
+        pos_net_usd = round(pos_net_usd, 2)
+        remise_pos = None
+        if abs(pos_net_usd) >= 0.01:
+            tampon = comptabilite._compte("compte_tampon_pos", caisse.societe_id)
+            lib = (f"Remise espèces POS — {caisse.libelle}, session close le "
+                   f"{sess.date_cloture:%d/%m/%Y}")
+            sens_caisse = "D" if pos_net_usd > 0 else "C"
+            montant = abs(pos_net_usd)
+            lignes_remise = [
+                {"sens": sens_caisse, "compte": caisse.compte_comptable,
+                 "montant_usd": montant, "libelle": lib},
+                {"sens": "C" if sens_caisse == "D" else "D", "compte": tampon,
+                 "montant_usd": montant, "libelle": f"Solde tampon POS — {lib}"},
+            ]
+            ecr_remise = comptabilite.post_ecriture(
+                caisse.societe_id, "CA", "Caisse", "caisse", date.today(),
+                lib, lignes_remise, "remise_pos", "session_caisse", sess.id,
+                None, request.user.id, statut="en_attente")
+            remise_pos = {"ecriture": ecr_remise.numero,
+                          "montant_usd": pos_net_usd}
+
         services.enregistrer_audit(request.user.id, "CLOTURE_CAISSE", "session_caisse",
                                    sess.id, None,
                                    {"ecart_usd": ecart_usd, "ecart_cdf": ecart_cdf,
-                                    "escalade": escalade})
+                                    "escalade": escalade,
+                                    "remise_pos_usd": pos_net_usd})
         rapport = _rapport_z(sess, caisse)
         rapport["escalade_dfi"] = escalade
         rapport["seuil_ecart_usd"] = seuil
+        rapport["remise_pos"] = remise_pos
         return Response(rapport)
 
 
