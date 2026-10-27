@@ -87,6 +87,7 @@
     "api/commercial/articles/<uuid:article_id>",
     "api/commercial/articles/<uuid:article_id>/prix",
     "api/commercial/tiers",
+    "api/commercial/tiers-situation",
     "api/commercial/tiers/<uuid:tiers_id>",
     "api/commercial/factures",
     "api/commercial/factures/<uuid:facture_id>",

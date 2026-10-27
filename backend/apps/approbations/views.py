@@ -104,13 +104,51 @@ def _creer_requisition(request):
         return refus({"detail": f"Aucun taux {devise}/USD défini pour le {jour}. "
                                    f"Le DFI doit le saisir."}, status=400)
 
+    mode_decaissement = payload.get("mode_decaissement", "avance")
+    factures: dict = {}
+    for l in payload["lignes"]:
+        fid = l.get("facture_id")
+        if not fid:
+            continue
+        if mode_decaissement != "paiement_direct":
+            return refus({"detail": "Une facture fournisseur ne se règle qu'en mode "
+                                    "« paiement sur justificatif »."}, status=422)
+        from apps.commercial.models import Facture
+        from apps.commercial.views import _reglement_facture
+        fac = Facture.objects.filter(id=fid).first()
+        if not fac or fac.type != "achat" or str(fac.societe_id) != str(sid) \
+                or fac.statut != "validee":
+            return refus({"detail": "Facture fournisseur introuvable pour cette "
+                                    "société."}, status=400)
+        solde = _reglement_facture(fac)["solde_du_usd"]
+        # Demandes en cours sur la même facture (réquisitions en validation et
+        # ordres émis non payés) — les paiements effectués sont déjà déduits.
+        en_cours = set(Requisition.objects.filter(
+            statut__in=("soumise", "en_attente_info", "demande_validee"))
+            .values_list("id", flat=True))
+        en_cours |= set(OrdreDepense.objects.filter(
+            statut__in=("a_valider", "valide"))
+            .values_list("requisition_id", flat=True))
+        deja = RequisitionLigne.objects.filter(facture_id=fac.id,
+                                               requisition_id__in=en_cours)
+        solde -= round(sum(float(x.montant_usd) for x in deja), 2)
+        montant_usd = float(domain.to_usd(
+            devise, domain.quantize(Decimal(str(l.get("quantite", 1)))
+                                    * Decimal(str(l.get("prix_unitaire", 0)))), taux))
+        if montant_usd > round(solde, 2) + 0.01:
+            return refus({"detail": f"Facture {fac.numero} : {montant_usd:.2f} USD "
+                                    f"demandés pour un solde restant de "
+                                    f"{max(solde, 0):.2f} USD (règlements et demandes "
+                                    f"en cours déduits)."}, status=400)
+        factures[fid] = fac
+
     with transaction.atomic():
         numero = services.next_numero("requisition", jour.year, societe.code, societe.id)
         req = Requisition.objects.create(
             numero=numero, societe_id=societe.id, site_id=payload.get("site_id"),
             initiateur_id=request.user.id, objet=payload["objet"],
             justification=payload.get("justification"),
-            mode_decaissement=payload.get("mode_decaissement", "avance"),
+            mode_decaissement=mode_decaissement,
             nature=payload.get("nature", "charge"),
             priorite=payload.get("priorite", "normal"), devise=devise, taux_jour=taux,
             statut="soumise", date_requisition=services.maintenant().date(),
@@ -124,7 +162,9 @@ def _creer_requisition(request):
             total += montant
             total_usd += montant_usd
             RequisitionLigne.objects.create(
-                requisition_id=req.id, ordre=i, compte_impute=l.get("compte_impute"),
+                requisition_id=req.id, ordre=i,
+                compte_impute=None if l.get("facture_id") else l.get("compte_impute"),
+                facture_id=l.get("facture_id") or None,
                 code_article=l.get("code_article"), description=l.get("description", ""),
                 unite=l.get("unite"), quantite=Decimal(str(l.get("quantite", 1))),
                 prix_unitaire=Decimal(str(l.get("prix_unitaire", 0))), montant=montant,
@@ -195,7 +235,9 @@ class RequisitionViewSet(MetierModelViewSet):
             "lignes": [{"description": l.description, "code_article": l.code_article,
                         "unite": l.unite, "quantite": float(l.quantite),
                         "prix_unitaire": float(l.prix_unitaire), "montant": float(l.montant),
-                        "compte_impute": l.compte_impute} for l in lignes],
+                        "compte_impute": l.compte_impute,
+                        "facture_id": str(l.facture_id) if l.facture_id else None}
+                       for l in lignes],
         })
 
 
@@ -605,6 +647,24 @@ class OrdreDepenseViewSet(MetierModelViewSet):
                     requisition_id=odp.requisition_id).order_by("ordre")
                 ecr = comptabilite.comptabiliser_paiement_direct(
                     odp, req_lignes, compte_credit, request.user.id, *journal)
+                # Les lignes adossées à une facture fournisseur la soldent.
+                from apps.commercial.models import Facture, PaiementFacture
+                for l in req_lignes:
+                    if not l.facture_id:
+                        continue
+                    fac = Facture.objects.filter(id=l.facture_id).first()
+                    if not fac:
+                        continue
+                    PaiementFacture.objects.create(
+                        facture_id=fac.id,
+                        mode="espece" if odp.mode_paiement != "banque" else "banque",
+                        devise=odp.devise, montant=float(l.montant),
+                        taux_jour=odp.taux_jour, montant_usd=float(l.montant_usd),
+                        reference=brf.numero, compte=compte_credit)
+                    services.enregistrer_audit(
+                        request.user.id, "REGLEMENT", "facture", fac.id, None,
+                        {"numero": fac.numero, "montant_usd": float(l.montant_usd),
+                         "ordre": odp.numero})
                 odp.montant_paye_usd = odp.montant_autorise_usd
                 odp.statut = "paye"
                 odp.save(update_fields=["montant_paye_usd", "statut"])

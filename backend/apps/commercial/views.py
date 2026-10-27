@@ -64,6 +64,25 @@ def _tiers_dict(t: Tiers) -> dict:
     return TiersSerializer(t).data
 
 
+def _compte_auxiliaire_normalise(payload, nom_tiers, societe_id):
+    """Compte dédié du tiers : classe 4 obligatoire, créé au plan comptable
+    de la société s'il n'y figure pas encore (intitulé = nom du tiers)."""
+    from apps.comptabilite.models import Compte
+    valeur = (payload.get("compte_auxiliaire") or "")
+    valeur = valeur.strip() if isinstance(valeur, str) else ""
+    if not valeur:
+        return None
+    if not valeur.isdigit() or not valeur.startswith("4") or len(valeur) < 3:
+        return refus({"detail": "Le compte dédié d'un tiers est un compte de "
+                                "classe 4 d'au moins trois chiffres "
+                                "(ex. 4011001)."}, status=422)
+    if societe_id:
+        Compte.objects.get_or_create(
+            societe_id=societe_id, numero=valeur,
+            defaults={"intitule": nom_tiers, "classe": "4", "auxiliaire": True})
+    return valeur
+
+
 class TiersViewSet(MetierModelViewSet):
     """Ressource Tiers ; contrats HTTP et validations métier conservés."""
     queryset = Tiers.objects.all()
@@ -95,10 +114,14 @@ class TiersViewSet(MetierModelViewSet):
                            for champ in ("adresse", "rccm", "nif", "telephone",
                                          "email", "contact_nom",
                                          "contact_telephone")}
+            auxiliaire = _compte_auxiliaire_normalise(payload, payload["nom"].strip(), sid)
+            if isinstance(auxiliaire, Response):
+                return auxiliaire
             t = Tiers.objects.create(
                 societe_id=sid, type=payload["type"], code=payload["code"].strip().upper(),
                 nom=payload["nom"].strip(), intra_groupe=payload.get("intra_groupe", False),
-                limite_credit_usd=payload.get("limite_credit_usd"), **coordonnees)
+                limite_credit_usd=payload.get("limite_credit_usd"),
+                compte_auxiliaire=auxiliaire, **coordonnees)
             return Response(self.get_serializer(t).data, status=201)
 
         from django.db.models import Q
@@ -119,16 +142,22 @@ class TiersViewSet(MetierModelViewSet):
         if 'nom' in payload and normaliser(payload['nom']) != normaliser(t.nom):
             verrouiller_catalogue(t.societe_id)
             verifier_doublon(tiers_visibles(t.societe_id),payload,'nom',t.id)
-        for f in ("nom", "type", "limite_credit_usd", "compte_auxiliaire", "actif",
+        for f in ("nom", "type", "limite_credit_usd", "actif",
                   "adresse", "rccm", "nif", "telephone", "email",
                   "contact_nom", "contact_telephone"):
             v = payload.get(f)
             if v is not None:
                 v = v.strip() if isinstance(v, str) else v
-                if f not in ("nom", "type", "limite_credit_usd",
-                             "compte_auxiliaire", "actif") and v == "":
+                if f not in ("nom", "type", "limite_credit_usd", "actif") and v == "":
                     v = None   # coordonnée effacée volontairement
                 setattr(t, f, v)
+        if payload.get("compte_auxiliaire") is not None:
+            auxiliaire = _compte_auxiliaire_normalise(
+                payload, t.nom,
+                t.societe_id or request.query_params.get("societe_id"))
+            if isinstance(auxiliaire, Response):
+                return auxiliaire
+            t.compte_auxiliaire = auxiliaire
         t.save()
         services.enregistrer_audit(request.user.id, "UPDATE", "tiers", t.id, None,
                                    {"nom": t.nom})
@@ -139,19 +168,78 @@ class TiersViewSet(MetierModelViewSet):
         _acces(self.request, sid, ROLES_POS)
         return tiers_visibles(sid)
 
+    @action(detail=False, methods=['get'])
+    def situation(self, request):
+        """Situation par tiers : mouvements comptables de classe 4 (collectif ou
+        compte dédié) et factures restant dues, pour le suivi individuel du
+        grand livre des fournisseurs et clients."""
+        from django.db.models import Sum
+        from apps.comptabilite.models import LigneEcriture
+        sid = _societe_param(request)
+        _acces(request, sid)
+        type_ = request.query_params.get("type")
+        tiers_qs = tiers_visibles(sid)
+        if type_:
+            tiers_qs = tiers_qs.filter(type=type_)
+        tiers_list = list(tiers_qs.order_by("nom"))
+
+        mouvements: dict = {}
+        rows = (LigneEcriture.objects
+                .filter(societe_id=sid, tiers_id__isnull=False,
+                        compte_numero__startswith="4")
+                .exclude(ecriture__statut="annulee")
+                .values("tiers_id", "sens")
+                .annotate(total=Sum("montant_usd")))
+        for r in rows:
+            m = mouvements.setdefault(r["tiers_id"], {"D": 0.0, "C": 0.0})
+            m[r["sens"]] = float(r["total"] or 0)
+
+        type_facture = {"fournisseur": "achat", "client": "vente"}
+        facs = list(Facture.objects.filter(
+            societe_id=sid, statut="validee", type__in=("achat", "vente"),
+            tiers_id__in=[t.id for t in tiers_list]))
+        regle = {r["facture_id"]: float(r["t"] or 0)
+                 for r in PaiementFacture.objects
+                 .filter(facture_id__in=[f.id for f in facs])
+                 .exclude(mode="credit")
+                 .values("facture_id").annotate(t=Sum("montant_usd"))}
+        ouvertes: dict = {}
+        for f in facs:
+            solde = round(float(f.total_ttc) - regle.get(f.id, 0.0), 2)
+            if solde <= 0.009:
+                continue
+            o = ouvertes.setdefault(f.tiers_id, {"achat": [0, 0.0], "vente": [0, 0.0]})
+            o[f.type][0] += 1
+            o[f.type][1] = round(o[f.type][1] + solde, 2)
+
+        out = []
+        for t in tiers_list:
+            m = mouvements.get(t.id, {"D": 0.0, "C": 0.0})
+            o = ouvertes.get(t.id, {"achat": [0, 0.0], "vente": [0, 0.0]})[
+                type_facture.get(t.type, "achat" if t.type == "fournisseur" else "vente")]
+            out.append({
+                "id": str(t.id), "code": t.code, "nom": t.nom, "type": t.type,
+                "compte": t.compte_auxiliaire or None,
+                "debit_usd": round(m["D"], 2), "credit_usd": round(m["C"], 2),
+                "solde_usd": round(m["D"] - m["C"], 2),
+                "factures_ouvertes": o[0], "reste_du_usd": o[1]})
+        return Response(out)
+
 
 # ── Factures ─────────────────────────────────────────────────────────
 def _reglement_facture(f: Facture) -> dict:
-    if f.type != "vente":
-        return {}
+    """Situation de règlement — ventes (encaissements) ET achats (paiements
+    fournisseurs, notamment via le circuit « paiement sur justificatif »)."""
     regle = round(sum(float(p.montant_usd) for p in PaiementFacture.objects.filter(
         facture_id=f.id).exclude(mode="credit")), 2)
     solde = round(float(f.total_ttc) - regle, 2)
     statut = "payee" if solde <= 0.009 else ("partielle" if regle > 0 else "due")
     retard = bool(f.echeance and solde > 0.009 and f.echeance < date.today())
-    return {"regle_usd": regle, "solde_du_usd": max(solde, 0.0),
-            "statut_reglement": statut, "en_retard": retard,
-            "devis_id": str(f.devis_id) if f.devis_id else None}
+    out = {"regle_usd": regle, "solde_du_usd": max(solde, 0.0),
+           "statut_reglement": statut, "en_retard": retard}
+    if f.type == "vente":
+        out["devis_id"] = str(f.devis_id) if f.devis_id else None
+    return out
 
 
 def _resoudre_contrepartie_frais(societe: Societe, f: dict, jour, ref_numero, ref_type,
@@ -204,6 +292,9 @@ def _facture_dict(f: Facture) -> dict:
     return {
         "id": str(f.id), "numero": f.numero, "type": f.type,
         "tiers": tiers.nom if tiers else None, "tiers_id": str(f.tiers_id),
+        "tiers_coordonnees": {c: getattr(tiers, c)
+                              for c in ("adresse", "rccm", "nif", "telephone",
+                                        "email", "contact_nom")} if tiers else None,
         "date": f.date_facture.isoformat(),
         "echeance": f.echeance.isoformat() if f.echeance else None,
         "reference": f.reference,

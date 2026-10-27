@@ -34,6 +34,8 @@ class RequisitionLigne(models.Model):
     requisition_id = models.UUIDField()
     ordre = models.IntegerField(default=0)
     compte_impute = models.CharField(max_length=16, null=True, blank=True)
+    # Paiement sur justificatif : la ligne règle cette facture fournisseur.
+    facture_id = models.UUIDField(null=True, blank=True)
     code_article = models.CharField(max_length=32, null=True, blank=True)
     description = models.TextField()
     unite = models.CharField(max_length=32, null=True, blank=True)

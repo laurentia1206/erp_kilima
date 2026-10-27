@@ -25,12 +25,18 @@
 .business-toolbar, .business-pages { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 18px 0; }
 .business-toolbar label, .business-field { display: grid; gap: 8px; font-size: 13px; font-weight: 600; }
 .business-field { margin: 18px 0; }
-.business-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 18px; }
+/* Grille de formulaire calibrée au contenu : 6 colonnes — un champ texte ou
+   une liste en occupe 3 (deux par rangée), un nombre ou une date 2 (trois par
+   rangée), une zone de texte toute la largeur. */
+.business-form-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0 18px; }
+.business-form-grid > * { grid-column: span 3; }
+.business-form-grid > .business-field:has(input[type=number]), .business-form-grid > .business-field:has(input[type=date]), .business-form-grid > .business-field:has(input[type=time]), .business-form-grid > .business-field:has(input[type=month]) { grid-column: span 2; }
+.business-form-grid > .business-field:has(textarea) { grid-column: 1 / -1; }
 .business-fieldset { border: 0; padding: 0; min-width: 0; }
 .business-check { display: flex !important; align-items: center; gap: 8px; margin: 12px 0; font-size: 13px; }
 .business-check input { flex: 0 0 auto; }
 .business-matches { padding: 14px; background: #f0f6f5; border-radius: 10px; display: grid; gap: 8px; }
-@media(max-width:600px) { .business-form-grid { grid-template-columns: 1fr; } }
+@media(max-width:600px) { .business-form-grid { grid-template-columns: 1fr; } .business-form-grid > * { grid-column: 1 / -1; } }
 .business-pages { justify-content: flex-end; }
 .business-pages span { margin-right: auto; color: var(--text2); }
 .business-table { overflow: auto; }
@@ -39,7 +45,7 @@
 .business-table th { background: #eaf1f2; color: #365364; }
 .business-table .right { text-align: right; white-space: nowrap; }
 .business-rate { max-width: 620px; }
-.business-dialog { position: fixed; margin: auto; padding: 0; width: min(700px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); border: 1px solid #dce5e7; border-radius: 16px; background: white; color: var(--text); box-shadow: 0 20px 80px #152c4840; }
+.business-dialog { position: fixed; margin: auto; padding: 0; width: min(880px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); border: 1px solid #dce5e7; border-radius: 16px; background: white; color: var(--text); box-shadow: 0 20px 80px #152c4840; }
 .business-dialog:has(.business-table,.business-print,.audit-diff) { width:min(1050px,calc(100vw - 32px)); }
 .business-dialog::backdrop { background: #182b4b88; }
 .business-dialog > header, .business-dialog > footer { display: flex; align-items: center; gap: 12px; padding: 18px 24px; background: white; position: sticky; z-index: 1; }
@@ -77,6 +83,17 @@
 @media (max-width: 640px) { .stock-transfer-line { grid-template-columns: minmax(0, 1fr); } }
 
 .hotel-react-planning th { white-space: nowrap; }
+
+/* Aperçu des rapports : cartouches d'identification et total encadré. */
+.business-print-infos { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 14px 0; }
+.business-print-infos > div { background: #f3f7f7; border-top: 3px solid var(--p, #176b61); padding: 12px 14px; border-radius: 0 0 8px 8px; }
+.business-print-infos strong { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--p, #176b61); margin-bottom: 6px; }
+.business-print-infos p { margin: 2px 0; font-size: 13px; }
+.business-print-total { margin: 14px 0 14px auto; width: fit-content; background: var(--p, #176b61); color: white; font-weight: 700; padding: 10px 16px; border-radius: 8px; }
+
+/* Bannière des opérations en attente du module courant. */
+.module-pending { border-left: 4px solid #c9962f; }
+.module-pending a { font-weight: 600; }
 .hotel-react-planning th:first-child { position: sticky; left: 0; z-index: 1; min-width: 120px; }
 .hotel-react-planning td { min-width: 80px; padding: 6px 2px; }
 .hotel-react-planning .hotel-today { background: #edf7f4; }

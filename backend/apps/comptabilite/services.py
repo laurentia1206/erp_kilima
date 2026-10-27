@@ -54,6 +54,19 @@ def _compte_avance_tiers(tiers, societe_id) -> str:
     return _compte("compte_avance", societe_id)
 
 
+def _compte_tiers(tiers, cle: str, societe_id) -> str:
+    """Compte collectif (401/411…) ou compte dédié de la fiche tiers, pour un
+    grand livre individuel. Le compte dédié est ajouté au plan comptable de la
+    société s'il n'y figure pas encore."""
+    if tiers is not None and getattr(tiers, "compte_auxiliaire", None):
+        from .models import Compte
+        Compte.objects.get_or_create(
+            societe_id=societe_id, numero=tiers.compte_auxiliaire,
+            defaults={"intitule": tiers.nom, "classe": "4", "auxiliaire": True})
+        return tiers.compte_auxiliaire
+    return _compte(cle, societe_id)
+
+
 def _lignes_normalisees(lignes: list[dict]) -> list[dict]:
     """Valide les montants qui seront réellement stockés, ligne par ligne."""
     if len(lignes) < 2:
@@ -229,7 +242,8 @@ def comptabiliser_facture(facture, lignes_facture, created_by,
                            "libelle": f"TVA déductible {facture.numero}"})
         goods_ttc = round(goods_ht + goods_tva, 2)
         if goods_ttc:
-            lignes.append({"sens": "C", "compte": _compte("compte_fournisseur", societe_id),
+            lignes.append({"sens": "C",
+                           "compte": _compte_tiers(tiers, "compte_fournisseur", societe_id),
                            "montant_usd": goods_ttc, "tiers_id": tiers.id,
                            "libelle": f"Fournisseur {tiers.nom} — {facture.numero}"})
 
@@ -245,7 +259,8 @@ def comptabiliser_facture(facture, lignes_facture, created_by,
             fttc = round(fht + ftva, 2)
             if f.mode == "credit":
                 ft = Tiers.objects.filter(id=f.tiers_id).first() if f.tiers_id else tiers
-                lignes.append({"sens": "C", "compte": _compte("compte_fournisseur", societe_id),
+                lignes.append({"sens": "C",
+                               "compte": _compte_tiers(ft, "compte_fournisseur", societe_id),
                                "montant_usd": fttc, "tiers_id": ft.id if ft else None,
                                "libelle": f"Frais {f.libelle} — {ft.nom if ft else ''}"})
             else:   # banque | caisse : contrepartie trésorerie
@@ -257,7 +272,8 @@ def comptabiliser_facture(facture, lignes_facture, created_by,
     else:
         ttc = round(float(facture.total_ttc), 2)
         tva = round(float(facture.total_tva), 2)
-        lignes.append({"sens": "D", "compte": _compte("compte_client", societe_id),
+        lignes.append({"sens": "D",
+                       "compte": _compte_tiers(tiers, "compte_client", societe_id),
                        "montant_usd": ttc, "tiers_id": tiers.id,
                        "libelle": f"Client {tiers.nom} — {facture.numero}"})
         by_compte: dict[str, float] = {}
@@ -288,7 +304,6 @@ def comptabiliser_reception(reception, goods_par_compte: dict, frais_par_compte:
     societe_id = reception.societe_id
     cmd = Commande.objects.filter(id=reception.commande_id).first()
     fnp = _compte("fournisseur_fnp", societe_id)
-    fournisseur = _compte("compte_fournisseur", societe_id)
     var = _compte("variation_stock", societe_id)
     tva_ded = _compte("tva_deductible", societe_id)
     lignes: list[dict] = []
@@ -313,7 +328,10 @@ def comptabiliser_reception(reception, goods_par_compte: dict, frais_par_compte:
         fttc = round(fht + ftva, 2)
         if f.mode == "credit":
             tid = f.tiers_id or (cmd.tiers_id if cmd else None)
-            lignes.append({"sens": "C", "compte": fournisseur, "montant_usd": fttc,
+            ft = Tiers.objects.filter(id=tid).first() if tid else None
+            lignes.append({"sens": "C",
+                           "compte": _compte_tiers(ft, "compte_fournisseur", societe_id),
+                           "montant_usd": fttc,
                            "tiers_id": tid, "libelle": f"Frais {f.libelle}"})
         else:   # banque | caisse
             cpt = f.compte_reglement or _compte("compte_caisse", societe_id)
@@ -367,7 +385,8 @@ def comptabiliser_facture_reception(facture, reception, created_by,
     # présentation PAR OPÉRATION (lecture comptable) :
     # 1) la facture : D achats + D TVA / C fournisseur ;
     # 2) le solde de la réception : D 408 / C variation de stock.
-    lignes.append({"sens": "C", "compte": _compte("compte_fournisseur", societe_id),
+    lignes.append({"sens": "C",
+                   "compte": _compte_tiers(tiers, "compte_fournisseur", societe_id),
                    "montant_usd": goods_ttc, "tiers_id": tiers.id,
                    "libelle": f"Fournisseur {tiers.nom} — {facture.numero}"})
     lignes.append({"sens": "D", "compte": fnp, "montant_usd": goods_ht,
@@ -502,8 +521,11 @@ def comptabiliser_versement_avance(avance, ordre, tiers, compte_credit: str, cre
 def comptabiliser_paiement_direct(ordre, req_lignes, compte_credit: str, created_by,
                                   journal_code: str = "CA", journal_libelle: str = "Caisse",
                                   journal_type: str = "caisse") -> Ecriture:
-    """Paiement sur justificatif : D charges (par ligne) / C 571|521 — 'en_attente'."""
+    """Paiement sur justificatif : D charges (par ligne) / C 571|521 — 'en_attente'.
+    Une ligne adossée à une facture fournisseur déjà comptabilisée règle le
+    compte fournisseur (401 ou compte dédié du tiers), pas une charge."""
     from apps.approbations.models import Requisition
+    from apps.commercial.models import Facture
     from core.models import Tiers
     charge_defaut = _compte("compte_charge", ordre.societe_id)
     tiers = Tiers.objects.filter(id=ordre.beneficiaire_tiers_id).first()
@@ -513,6 +535,19 @@ def comptabiliser_paiement_direct(ordre, req_lignes, compte_credit: str, created
     objet = f" — {req.objet}" if req and req.objet else ""
     lignes: list[dict] = []
     for l in req_lignes:
+        fac = Facture.objects.filter(id=l.facture_id).first() \
+            if getattr(l, "facture_id", None) else None
+        if fac is not None:
+            fournisseur = Tiers.objects.filter(id=fac.tiers_id).first()
+            lignes.append({"sens": "D",
+                           "compte": _compte_tiers(fournisseur, "compte_fournisseur",
+                                                   ordre.societe_id),
+                           "montant_usd": l.montant_usd, "devise_origine": l.devise,
+                           "montant_origine": l.montant,
+                           "tiers_id": fac.tiers_id,
+                           "libelle": f"Règlement {fac.numero} — "
+                                      f"{fournisseur.nom if fournisseur else ''}"})
+            continue
         lignes.append({"sens": "D", "compte": l.compte_impute or charge_defaut,
                        "montant_usd": l.montant_usd, "devise_origine": l.devise,
                        "montant_origine": l.montant,

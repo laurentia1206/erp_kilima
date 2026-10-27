@@ -8,6 +8,7 @@ urlpatterns = [
     path("commercial/articles/<uuid:article_id>/prix", commercial_views.ArticleViewSet.as_view({'get': 'prix'}, http_method_names=['get', 'options'], detail=True, basename='article')),
     path("commercial/tiers", commercial_views.TiersViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='tiers')),
     path("commercial/tiers/<uuid:tiers_id>", commercial_views.TiersViewSet.as_view({'patch': 'partial_update'}, http_method_names=['patch', 'options'], detail=True, basename='tiers')),
+    path("commercial/tiers-situation", commercial_views.TiersViewSet.as_view({'get': 'situation'}, http_method_names=['get', 'options'], detail=False, basename='tiers')),
     path("commercial/factures", commercial_views.FactureViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='facture')),
     path("commercial/factures/<uuid:facture_id>", commercial_views.FactureViewSet.as_view({'get': 'retrieve'}, http_method_names=['get', 'options'], detail=True, basename='facture')),
     path("commercial/stock", commercial_views.StockViewSet.as_view({'get': 'etat_stock'}, http_method_names=['get', 'options'], detail=False, basename='stock')),

@@ -22,7 +22,7 @@ test('les écrans migrés sont possédés par React et neutralisés côté histo
  const fs=require('node:fs');
  const index=fs.readFileSync('components/business/index.tsx','utf8');
  const views=[...index.match(/BUSINESS_VIEWS = \[(.*?)\]/)[1].matchAll(/'([^']+)'/g)].map(m=>m[1]);
- assert.equal(views.length,62);assert.equal(new Set(views).size,62);
+ assert.equal(views.length,64);assert.equal(new Set(views).size,64);
  for(const file of ['lib/runtime.ts','legacy/next-adapter.js']) {
   const source=fs.readFileSync(file,'utf8');for(const view of views) assert.ok(source.includes(`'${view}'`),`${view} absent de ${file}`);
  }

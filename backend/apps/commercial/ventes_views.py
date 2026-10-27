@@ -693,7 +693,8 @@ class FactureViewSet(MetierModelViewSet):
                        "devise_origine": devise, "montant_origine": round(float(montant), 2),
                        "taux_jour": taux, "libelle": f"Règlement {fac.numero} — {tiers.nom}"},
                       {"sens": "C",
-                       "compte": comptabilite._compte("compte_client", fac.societe_id),
+                       "compte": comptabilite._compte_tiers(tiers, "compte_client",
+                                                            fac.societe_id),
                        "montant_usd": montant_usd, "tiers_id": tiers.id,
                        "libelle": f"Règlement client {tiers.nom} — {fac.numero}"}]
             ecr = comptabilite.post_ecriture(fac.societe_id, "VE", "Ventes", "vente", jour,

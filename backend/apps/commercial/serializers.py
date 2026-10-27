@@ -92,6 +92,7 @@ class TiersSerializer(serializers.ModelSerializer):
                 "adresse": t.adresse, "rccm": t.rccm, "nif": t.nif,
                 "telephone": t.telephone, "email": t.email,
                 "contact_nom": t.contact_nom,
-                "contact_telephone": t.contact_telephone}
+                "contact_telephone": t.contact_telephone,
+                "compte_auxiliaire": t.compte_auxiliaire}
 
 

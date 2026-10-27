@@ -2177,6 +2177,30 @@
     "throttles": []
   },
   {
+    "route": "api/commercial/tiers-situation",
+    "methods": [
+      "get",
+      "options"
+    ],
+    "authentication": [
+      "core.auth.JWTAuthentication"
+    ],
+    "permissions": [
+      "rest_framework.permissions.IsAuthenticated",
+      "core.permissions.PermissionsModules"
+    ],
+    "parsers": [
+      "rest_framework.parsers.JSONParser",
+      "rest_framework.parsers.FormParser",
+      "rest_framework.parsers.MultiPartParser"
+    ],
+    "renderers": [
+      "rest_framework.renderers.JSONRenderer",
+      "rest_framework.renderers.BrowsableAPIRenderer"
+    ],
+    "throttles": []
+  },
+  {
     "route": "api/commercial/tiers/<uuid:tiers_id>",
     "methods": [
       "options",

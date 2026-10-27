@@ -48,6 +48,17 @@ def normaliser(p):
                 for v in r: texte(v if v is not None else '')
             out.append({'type':'table','colonnes':[texte(c,250) for c in cols],
                 'lignes':[[v if isinstance(v,(int,float)) and not isinstance(v,bool) else texte(v if v is not None else '') for v in r] for r in rows]})
+        elif kind=='infos':
+            # Cartouches côte à côte (émetteur / destinataire / références…).
+            secs=b.get('sections',[])
+            if not isinstance(secs,list) or not 1<=len(secs)<=3: raise ValidationError('Bloc infos invalide : 1 à 3 sections.')
+            propres=[]
+            for s in secs:
+                if not isinstance(s,dict): raise ValidationError('Bloc infos invalide.')
+                lignes=s.get('lignes',[])
+                if not isinstance(lignes,list) or len(lignes)>12: raise ValidationError('Bloc infos invalide : 12 lignes maximum.')
+                propres.append({'titre':texte(s.get('titre',''),120),'lignes':[texte(x,300) for x in lignes if str(x).strip()]})
+            out.append({'type':'infos','sections':propres})
         elif kind in ['texte','titre','total','signatures']:
             out.append({'type':kind,'texte':texte(b.get('texte',''))})
         else: raise ValidationError('Type de bloc non autorisé.')
@@ -125,6 +136,26 @@ def pdf(spec,soc):
                 ('TOPPADDING',(0,0),(-1,-1),8),('BOTTOMPADDING',(0,0),(-1,-1),8),
                 ('LINEBELOW',(0,0),(-1,0),.7,couleur(TEAL)),('LINEBELOW',(0,1),(-1,-1),.25,couleur('DCE5E5'))]))
             story.extend([Spacer(1,7),t,Spacer(1,12)])
+        elif b['type']=='infos':
+            secs=b['sections'];n=len(secs)
+            etiquette=ParagraphStyle('Étiquette',parent=cell,fontName='EditionBold',fontSize=7.5,
+                                     textColor=couleur(TEAL),spaceAfter=4)
+            contenus=[[p(s['titre'].upper(),etiquette)]+[p(x,cell) for x in s['lignes']] for s in secs]
+            it=Table([contenus],colWidths=[(width-(n-1)*10)/n]*n,hAlign='LEFT')
+            it.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),
+                ('BACKGROUND',(0,0),(-1,-1),couleur('F3F7F7')),
+                ('LINEABOVE',(0,0),(-1,0),2,couleur(TEAL)),
+                ('LEFTPADDING',(0,0),(-1,-1),12),('RIGHTPADDING',(0,0),(-1,-1),12),
+                ('TOPPADDING',(0,0),(-1,-1),10),('BOTTOMPADDING',(0,0),(-1,-1),10)]))
+            story.extend([Spacer(1,6),it,Spacer(1,10)])
+        elif b['type']=='total':
+            boite=ParagraphStyle('TotalBoite',parent=bold,textColor=colors.white,
+                                 alignment=TA_RIGHT,fontSize=11,leading=15,spaceBefore=0,spaceAfter=0)
+            tt=Table([[p(b['texte'],boite)]],colWidths=[min(width,max(width*0.42,220))],hAlign='RIGHT')
+            tt.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),couleur(TEAL)),
+                ('LEFTPADDING',(0,0),(-1,-1),14),('RIGHTPADDING',(0,0),(-1,-1),14),
+                ('TOPPADDING',(0,0),(-1,-1),10),('BOTTOMPADDING',(0,0),(-1,-1),10)]))
+            story.append(KeepTogether([Spacer(1,4),tt,Spacer(1,8)]))
         elif b['type']=='signatures':
             labels=[t.strip() for t in b['texte'].split('|') if t.strip()] or ['Signature']
             signature_style=ParagraphStyle('Signature',parent=cell,fontName='EditionBold',fontSize=8.5,leading=12)
@@ -145,9 +176,13 @@ def xlsx(spec,soc):
     from openpyxl.utils import get_column_letter
     from openpyxl.worksheet.table import Table,TableStyleInfo
     wb=Workbook();wb.remove(wb.active)
+    def aplatir(b):
+        if b['type']=='infos':
+            return ' · '.join(f"{s['titre']} : {' — '.join(s['lignes'])}" for s in b['sections'])
+        return b['texte']
     tables=[b for b in spec['blocs'] if b['type']=='table']
-    if not tables: tables=[{'colonnes':['Rubrique','Détail'],'lignes':[[b['type'],b['texte']] for b in spec['blocs']]}]
-    notes=[b['texte'] for b in spec['blocs'] if b['type']!='table']
+    if not tables: tables=[{'colonnes':['Rubrique','Détail'],'lignes':[[b['type'],aplatir(b)] for b in spec['blocs']]}]
+    notes=[aplatir(b) for b in spec['blocs'] if b['type']!='table']
     def textcell(c,v): c.value=str(v);c.data_type='s'
     for ix,b in enumerate(tables,1):
         ws=wb.create_sheet('État' if len(tables)==1 else f'Tableau {ix}');cols=b['colonnes'];n=len(cols);last=get_column_letter(max(2,n))

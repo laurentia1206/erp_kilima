@@ -28,6 +28,8 @@ import { HrSimulation, HrFinalSettlements } from './hr-simulation';
 import { HrFinances, HrPayments } from './hr-finances';
 import { HrPayroll } from './hr-payroll';
 import { Invoices } from './invoices';
+import { PartiesSituation } from './parties-situation';
+import { ModulePendingBanner } from './module-pending';
 import { PurchaseOrders, Receptions } from './purchasing';
 import { SalesQuotes } from './sales-quotes';
 import { PointOfSale } from './point-of-sale';
@@ -53,10 +55,10 @@ import { FinancialCockpit, FinancialStatements } from './financial-statements';
 import { Matching, BankReconciliation } from './accounting-matching';
 import type { ScreenProps } from './shared';
 
-export const BUSINESS_VIEWS = ['pilotage', 'audit', 'stock', 'taux', 'articles', 'hotel-chambres', 'depots', 'inventaires', 'hotel-reception', 'cuisine', 'balance', 'grand-livre', 'saisie-od', 'plan-comptable', 'lettrage', 'rapprochement', 'cockpit', 'etats', 'analytique', 'tva', 'compta', 'rapports-commercial', 'dashboard', 'config-hotel', 'config-engins', 'config-transport', 'config-maintenance', 'contrats-transport', 'flotte-documents', 'engins-rpe', 'flotte', 'engins-parc', 'engins-heures', 'maintenance-parc', 'maintenance-interventions', 'carburant', 'tarifs-pos', 'transferts', 'caisse-exec', 'intersociete', 'nouvelle-req', 'requisitions', 'approbation', 'ordres', 'avances', 'caisse', 'courses', 'config', 'administration', 'systeme', 'rh', 'rh-simulateur', 'rh-decomptes', 'rh-finances', 'rh-paiements', 'rh-mensuel', 'achats', 'ventes', 'commandes', 'receptions', 'devis', 'pos'];
+export const BUSINESS_VIEWS = ['pilotage', 'audit', 'stock', 'taux', 'articles', 'hotel-chambres', 'depots', 'inventaires', 'hotel-reception', 'cuisine', 'balance', 'grand-livre', 'saisie-od', 'plan-comptable', 'lettrage', 'rapprochement', 'cockpit', 'etats', 'analytique', 'tva', 'compta', 'rapports-commercial', 'dashboard', 'config-hotel', 'config-engins', 'config-transport', 'config-maintenance', 'contrats-transport', 'flotte-documents', 'engins-rpe', 'flotte', 'engins-parc', 'engins-heures', 'maintenance-parc', 'maintenance-interventions', 'carburant', 'tarifs-pos', 'transferts', 'caisse-exec', 'intersociete', 'nouvelle-req', 'requisitions', 'approbation', 'ordres', 'avances', 'caisse', 'courses', 'config', 'administration', 'systeme', 'rh', 'rh-simulateur', 'rh-decomptes', 'rh-finances', 'rh-paiements', 'rh-mensuel', 'achats', 'ventes', 'commandes', 'receptions', 'devis', 'fournisseurs', 'clients', 'pos'];
 export function BusinessScreen(props: ScreenProps) {
   const target = (props.state as typeof props.state & { taskTarget?: { view: string; documentId: string } | null }).taskTarget;
-  return <ScreenPresentation state={props.state}><ModuleGuide {...props} /><CurrentScreen {...props} />{target && target.view === props.state.view && <RequisitionDetail {...props} id={target.documentId} onClose={() => props.bridge.clearTask()} />}</ScreenPresentation>;
+  return <ScreenPresentation state={props.state}><ModuleGuide {...props} /><ModulePendingBanner {...props} /><CurrentScreen {...props} />{target && target.view === props.state.view && <RequisitionDetail {...props} id={target.documentId} onClose={() => props.bridge.clearTask()} />}</ScreenPresentation>;
 }
 function CurrentScreen(props: ScreenProps) {
   switch (props.state.view) {
@@ -67,6 +69,8 @@ function CurrentScreen(props: ScreenProps) {
     case 'rh-paiements': return <HrPayments {...props} />;
     case 'rh-mensuel': return <HrPayroll {...props} />;
     case 'achats': case 'ventes': return <Invoices key={props.state.view} {...props} />;
+    case 'fournisseurs': return <PartiesSituation kind="fournisseur" {...props} />;
+    case 'clients': return <PartiesSituation kind="client" {...props} />;
     case 'commandes': return <PurchaseOrders {...props} />;
     case 'receptions': return <Receptions {...props} />;
     case 'devis': return <SalesQuotes {...props} />;

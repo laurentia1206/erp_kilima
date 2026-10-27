@@ -170,10 +170,12 @@ const NAV = [
   { g: "Achats", roles: ["COMPTABLE", "DFI"], items: [
     { v: "commandes", l: "Commandes fournisseurs", i: "ti-clipboard-list" },
     { v: "receptions", l: "Réceptions", i: "ti-truck-delivery", badge: "recv" },
-    { v: "achats", l: "Factures d'achat", i: "ti-shopping-cart" }] },
+    { v: "achats", l: "Factures d'achat", i: "ti-shopping-cart" },
+    { v: "fournisseurs", l: "Fournisseurs & situations", i: "ti-users" }] },
   { g: "Ventes", roles: ["COMPTABLE", "DFI"], items: [
     { v: "devis", l: "Devis & commandes", i: "ti-file-description", badge: "devispo" },
     { v: "ventes", l: "Factures de vente", i: "ti-tag" },
+    { v: "clients", l: "Clients & situations", i: "ti-users" },
     { v: "rapports-commercial", l: "Rapports", i: "ti-report-analytics" }] },
   { g: "Stock", roles: ["COMPTABLE", "DFI", "DG", "CAISSIER_CENTRAL"], items: [
     { v: "stock", l: "État du stock", i: "ti-packages" },
@@ -264,6 +266,8 @@ const TITLES = {
   commandes: ["Commandes", "Bons de commande fournisseurs (circuit d'achat en gros)"],
   receptions: ["Réceptions", "Entrées en stock des commandes — puis facturation"],
   achats: ["Achats", "Factures fournisseurs — stock & TVA déductible"],
+  fournisseurs: ["Situation des fournisseurs", "Dettes par fournisseur — grand livre individuel et factures dues"],
+  clients: ["Situation des clients", "Créances par client — grand livre individuel et factures dues"],
   courses: ["Fiches de course", "Transport — de la demande à la facturation (PROC-KL-01 → 04)"],
   flotte: ["Flotte & maintenance", "Camions propres et sous-traités — disponibilité, pannes, entretiens"],
   "contrats-transport": ["Contrats de transport", "Contrats-cadres clients et grilles tarifaires par trajet"],

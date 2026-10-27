@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import F, Q, Count, Min
+from django.db.models import F, Q, Count, Min, Sum
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
@@ -47,6 +47,8 @@ TYPES = {
     'hotel_arrivee': ('Hôtel', 'Confirmer l’arrivée ou régulariser la réservation', 'hotel-reception', 'Occupation et compte du séjour'),
     'hotel_depart': ('Hôtel', 'Vérifier le départ ou prolonger le séjour', 'hotel-reception', 'Facturation et disponibilité de la chambre'),
     'vente_facture': ('Ventes', 'Facturer les quantités disponibles à facturer', 'devis', 'Créance et encaissement client'),
+    'vente_encaissement': ('Ventes', 'Encaisser la facture client échue', 'ventes', 'Recouvrement de la créance'),
+    'achat_reglement': ('Achats', 'Régler la facture fournisseur échue', 'achats', 'Apurement de la dette fournisseur'),
     'tva_suivi': ('Comptabilité', 'Compléter le suivi de dépôt de TVA', 'tva', 'Traçabilité de la déclaration mensuelle'),
 }
 PREFIX = 'pilotage.delai.'
@@ -381,6 +383,24 @@ class FileTravail:
                 self.ajouter('vente_facture', d, roles=['COMPTABLE', 'DFI'], debut=d.date_confirmation,
                     base='Confirmation de commande (date de mise à disposition à vérifier)',
                     detail='Commande client hors circuit intersociétés. Vérifier les pièces avant facturation.')
+        # Factures échues restant dues : ventes à encaisser, achats à régler.
+        facs = list(M.Facture.objects.filter(societe_id=sid, statut='validee',
+                                             type__in=('achat', 'vente'),
+                                             echeance__isnull=False, echeance__lt=today))
+        regle = {r['facture_id']: float(r['t'] or 0)
+                 for r in M.PaiementFacture.objects
+                 .filter(facture_id__in=[f.id for f in facs]).exclude(mode='credit')
+                 .values('facture_id').annotate(t=Sum('montant_usd'))}
+        for f in facs:
+            solde = round(float(f.total_ttc) - regle.get(f.id, 0.0), 2)
+            if solde <= 0.009:
+                continue
+            self.ajouter('vente_encaissement' if f.type == 'vente' else 'achat_reglement', f,
+                         roles=['COMPTABLE', 'DFI'], debut=f.echeance, echeance=f.echeance,
+                         base='Échéance de la facture',
+                         detail=f'{solde:.2f} USD restant dus'
+                                + ('' if f.type == 'vente' else
+                                   ' — règlement via une réquisition en paiement direct.'))
         for p in M.PreparationTVA.objects.filter(societe_id=sid, mois__lt=today.strftime('%Y-%m')):
             if not p.donnees.get('reference_depot') or not p.donnees.get('date_depot'):
                 self.ajouter('tva_suivi', p, roles=['COMPTABLE', 'DFI'], reference='TVA '+p.mois, debut=p.updated_at,
