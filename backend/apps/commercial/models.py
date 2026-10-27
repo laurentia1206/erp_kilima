@@ -51,6 +51,8 @@ class LigneFacture(models.Model):
     taux_tva = models.DecimalField(max_digits=6, decimal_places=2, default=16)
     montant_ht = models.DecimalField(max_digits=18, decimal_places=2, default=0)
     montant_tva = models.DecimalField(max_digits=18, decimal_places=2, default=0)
+    # compte produit/charge impose pour une ligne libre (prestation de service)
+    compte_contrepartie = models.CharField(max_length=16, null=True, blank=True)
     frais_reparti = models.DecimalField(max_digits=18, decimal_places=2, default=0)
     cout_entree = models.DecimalField(max_digits=18, decimal_places=2, default=0)
     origine_ligne_id = models.UUIDField(null=True, blank=True)

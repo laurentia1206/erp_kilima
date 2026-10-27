@@ -39,7 +39,7 @@ from apps.stocks.models import Article, Depot, MouvementStock
 from apps.tresorerie.models import Avance, Caisse, CompteBancaire, Justification, MouvementCaisse, SessionCaisse
 from apps.commercial.models import Commande, Devis, Facture, FraisFacture, FraisReception, LigneCommande, LigneFacture, LigneReception, ListePrix, PaiementFacture, PointVente, Reception, TarifArticle
 from apps.transport.models import Course
-from apps.comptabilite.models import LigneEcriture
+from apps.comptabilite.models import Compte, LigneEcriture
 from core.models import Societe, Tiers, Utilisateur
 from core.views import _societe_param
 from apps.stocks.catalogue import verifier_doublon, verrouiller_catalogue, tiers_visibles, tiers_disponible, normaliser
@@ -91,10 +91,14 @@ class TiersViewSet(MetierModelViewSet):
                                 status=422)
             verrouiller_catalogue(sid)
             verifier_doublon(tiers_visibles(sid), payload, 'nom')
+            coordonnees = {champ: (payload.get(champ) or "").strip() or None
+                           for champ in ("adresse", "rccm", "nif", "telephone",
+                                         "email", "contact_nom",
+                                         "contact_telephone")}
             t = Tiers.objects.create(
                 societe_id=sid, type=payload["type"], code=payload["code"].strip().upper(),
                 nom=payload["nom"].strip(), intra_groupe=payload.get("intra_groupe", False),
-                limite_credit_usd=payload.get("limite_credit_usd"))
+                limite_credit_usd=payload.get("limite_credit_usd"), **coordonnees)
             return Response(self.get_serializer(t).data, status=201)
 
         from django.db.models import Q
@@ -115,10 +119,16 @@ class TiersViewSet(MetierModelViewSet):
         if 'nom' in payload and normaliser(payload['nom']) != normaliser(t.nom):
             verrouiller_catalogue(t.societe_id)
             verifier_doublon(tiers_visibles(t.societe_id),payload,'nom',t.id)
-        for f in ("nom", "type", "limite_credit_usd", "compte_auxiliaire", "actif"):
+        for f in ("nom", "type", "limite_credit_usd", "compte_auxiliaire", "actif",
+                  "adresse", "rccm", "nif", "telephone", "email",
+                  "contact_nom", "contact_telephone"):
             v = payload.get(f)
             if v is not None:
-                setattr(t, f, v.strip() if isinstance(v, str) else v)
+                v = v.strip() if isinstance(v, str) else v
+                if f not in ("nom", "type", "limite_credit_usd",
+                             "compte_auxiliaire", "actif") and v == "":
+                    v = None   # coordonnée effacée volontairement
+                setattr(t, f, v)
         t.save()
         services.enregistrer_audit(request.user.id, "UPDATE", "tiers", t.id, None,
                                    {"nom": t.nom})
@@ -267,12 +277,32 @@ def _creer_facture(request, sid):
             tva = round(ht * taux / 100, 2)
             total_ht += ht
             total_tva += tva
+            # ligne libre (prestation de service) : compte de contrepartie
+            # imposable par l'utilisateur, contrôlé au plan comptable
+            compte_libre = (l.get("compte") or "").strip() or None
+            if compte_libre:
+                if art is not None:
+                    return refus({"detail": "Le compte ne se choisit que sur une "
+                                            "ligne libre — un article du "
+                                            "catalogue porte déjà ses comptes."},
+                                 status=422)
+                if not Compte.objects.filter(societe_id=sid,
+                                             numero=compte_libre).exists():
+                    return refus({"detail": f"Compte {compte_libre} absent du "
+                                            f"plan comptable."}, status=400)
+                attendu = "7" if type_ == "vente" else "6"
+                if not compte_libre.startswith(attendu):
+                    return refus({"detail": f"Une ligne de "
+                                            f"{'vente' if type_ == 'vente' else 'charge'} "
+                                            f"s'impute en classe {attendu} "
+                                            f"({compte_libre} fourni)."}, status=422)
             lm = LigneFacture.objects.create(
                 facture_id=fac.id, article_id=l.get("article_id"),
                 designation=(l.get("designation")
                              or (art.designation if art else "")).strip(),
                 qte=qte, prix_unitaire=pu, taux_tva=taux,
-                montant_ht=ht, montant_tva=tva, cout_entree=ht)
+                montant_ht=ht, montant_tva=tva, cout_entree=ht,
+                compte_contrepartie=compte_libre)
             lm_pairs.append((lm, art))
 
         # ── Frais annexes (achat) ────────────────────────────────────

@@ -216,7 +216,7 @@ def comptabiliser_facture(facture, lignes_facture, created_by,
         goods_ht = goods_tva = 0.0
         for l in lignes_facture:
             art = _art(l.article_id)
-            compte = (art.compte_achat if art else None) or _compte("compte_charge", societe_id)
+            compte = getattr(l, "compte_contrepartie", None)                 or (art.compte_achat if art else None)                 or _compte("compte_charge", societe_id)
             by_achat[compte] = by_achat.get(compte, 0.0) + float(l.montant_ht)
             goods_ht += float(l.montant_ht)
             goods_tva += float(l.montant_tva)
@@ -263,7 +263,7 @@ def comptabiliser_facture(facture, lignes_facture, created_by,
         by_compte: dict[str, float] = {}
         for l in lignes_facture:
             art = _art(l.article_id)
-            compte = (art.compte_vente if art else None) or "701"
+            compte = getattr(l, "compte_contrepartie", None)                 or (art.compte_vente if art else None) or "701"
             by_compte[compte] = by_compte.get(compte, 0.0) + float(l.montant_ht)
         for compte, ht in by_compte.items():
             lignes.append({"sens": "C", "compte": compte, "montant_usd": round(ht, 2),
@@ -364,11 +364,14 @@ def comptabiliser_facture_reception(facture, reception, created_by,
     if goods_tva:
         lignes.append({"sens": "D", "compte": _compte("tva_deductible", societe_id),
                        "montant_usd": goods_tva, "libelle": f"TVA déductible {facture.numero}"})
-    lignes.append({"sens": "D", "compte": fnp, "montant_usd": goods_ht,
-                   "libelle": f"Solde réception {reception.numero}"})
+    # présentation PAR OPÉRATION (lecture comptable) :
+    # 1) la facture : D achats + D TVA / C fournisseur ;
+    # 2) le solde de la réception : D 408 / C variation de stock.
     lignes.append({"sens": "C", "compte": _compte("compte_fournisseur", societe_id),
                    "montant_usd": goods_ttc, "tiers_id": tiers.id,
                    "libelle": f"Fournisseur {tiers.nom} — {facture.numero}"})
+    lignes.append({"sens": "D", "compte": fnp, "montant_usd": goods_ht,
+                   "libelle": f"Solde réception {reception.numero}"})
     lignes.append({"sens": "C", "compte": var, "montant_usd": goods_ht,
                    "libelle": f"Variation stock {reception.numero}"})
     return post_ecriture(societe_id, "AC", "Achats", "achat", facture.date_facture,

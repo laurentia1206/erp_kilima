@@ -13,6 +13,12 @@ test('remises successives et TVA par article, y compris exonération et fraction
  assert.deepEqual(t,{ht:180.5,tva:27.36,ttc:207.86,remise:29.5});
  assert.equal(commercialLines([{...row,prix_unitaire:'0',taux_tva:'0'}])[0].prix_unitaire,0);
 });
+test('le compte de contrepartie ne part que sur une ligne libre',()=>{
+ assert.equal(commercialLines([{...row,article_id:'',compte:' 706 '}])[0].compte,'706');
+ assert.equal('compte' in commercialLines([{...row,article_id:'',compte:'  '}])[0],false);
+ assert.equal('compte' in commercialLines([row])[0],false);
+ assert.throws(()=>commercialLines([{...row,compte:'706'}]),/ligne libre/);
+});
 test('une ligne incomplète n’est pas omise et les montants non finis sont refusés',()=>{
  for(const changed of [{qte:'0'},{qte:''},{prix_unitaire:'Infinity'},{designation:' '},{taux_tva:'101'},{remise_pct:'-1'}]) assert.throws(()=>commercialLines([row,{...row,...changed}],true));
  assert.throws(()=>commercialTotals([row],'101'));

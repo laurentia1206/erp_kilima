@@ -13,7 +13,8 @@ export function commercialLines(rows: CommercialRow[], discount = false) {
   return rows.map((r, i) => {
     const qte = commercialNumber(r.qte, `Quantité, ligne ${i + 1}`);
     if (!qte || !r.designation.trim()) throw new Error(`Complétez la désignation et la quantité de la ligne ${i + 1}.`);
-    return { article_id: r.article_id || null, designation: r.designation.trim(), qte, prix_unitaire: commercialNumber(r.prix_unitaire, 'Prix unitaire'), taux_tva: commercialNumber(r.taux_tva, 'TVA', 100), ...(discount ? { remise_pct: commercialNumber(r.remise_pct || '0', 'Remise', 100) } : {}) };
+    if (r.article_id && (r.compte || '').trim()) throw new Error(`Ligne ${i + 1} : le compte ne se choisit que sur une ligne libre — l’article porte déjà ses comptes.`);
+    return { article_id: r.article_id || null, designation: r.designation.trim(), qte, prix_unitaire: commercialNumber(r.prix_unitaire, 'Prix unitaire'), taux_tva: commercialNumber(r.taux_tva, 'TVA', 100), ...(!r.article_id && (r.compte || '').trim() ? { compte: r.compte.trim() } : {}), ...(discount ? { remise_pct: commercialNumber(r.remise_pct || '0', 'Remise', 100) } : {}) };
   });
 }
 export function commercialTotals(rows: CommercialRow[], globalDiscount = '0') {

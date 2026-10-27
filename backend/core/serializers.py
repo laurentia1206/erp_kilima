@@ -79,7 +79,7 @@ class TauxChangeSerializer(serializers.ModelSerializer):
 class TiersSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tiers
-        fields = ('id', 'societe_id', 'type', 'code', 'nom', 'compte_auxiliaire', 'utilisateur_id', 'intra_groupe', 'limite_credit_usd', 'points_fidelite', 'societe_liee_id', 'actif')
+        fields = ('id', 'societe_id', 'type', 'code', 'nom', 'adresse', 'rccm', 'nif', 'telephone', 'email', 'contact_nom', 'contact_telephone', 'compte_auxiliaire', 'utilisateur_id', 'intra_groupe', 'limite_credit_usd', 'points_fidelite', 'societe_liee_id', 'actif')
         read_only_fields = fields
 
 

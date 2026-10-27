@@ -78,7 +78,7 @@ class ReceptionSerializer(serializers.ModelSerializer):
 class TiersSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tiers
-        fields = ('id', 'societe_id', 'type', 'code', 'nom', 'compte_auxiliaire', 'utilisateur_id', 'intra_groupe', 'limite_credit_usd', 'points_fidelite', 'societe_liee_id', 'actif')
+        fields = ('id', 'societe_id', 'type', 'code', 'nom', 'adresse', 'rccm', 'nif', 'telephone', 'email', 'contact_nom', 'contact_telephone', 'compte_auxiliaire', 'utilisateur_id', 'intra_groupe', 'limite_credit_usd', 'points_fidelite', 'societe_liee_id', 'actif')
         read_only_fields = fields
 
     def to_representation(self, instance):
@@ -88,6 +88,10 @@ class TiersSerializer(serializers.ModelSerializer):
                 "intra_groupe": bool(t.intra_groupe),
                 "limite_credit_usd": float(t.limite_credit_usd)
                 if t.limite_credit_usd is not None else None,
-                "points_fidelite": float(t.points_fidelite or 0)}
+                "points_fidelite": float(t.points_fidelite or 0),
+                "adresse": t.adresse, "rccm": t.rccm, "nif": t.nif,
+                "telephone": t.telephone, "email": t.email,
+                "contact_nom": t.contact_nom,
+                "contact_telephone": t.contact_telephone}
 
 
