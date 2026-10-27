@@ -17,6 +17,10 @@ class Facture(models.Model):
     total_frais = models.DecimalField(max_digits=18, decimal_places=2, default=0)
     total_tva = models.DecimalField(max_digits=18, decimal_places=2, default=0)
     total_ttc = models.DecimalField(max_digits=18, decimal_places=2, default=0)
+    # Retenue ARSP (sous-traitance RDC) : % du HT retenu par le client,
+    # supporté en charge par l'émetteur de la facture.
+    arsp_pct = models.DecimalField(max_digits=6, decimal_places=3, null=True, blank=True)
+    montant_arsp = models.DecimalField(max_digits=18, decimal_places=2, default=0)
     repartition = models.CharField(max_length=16, default="quantite")
     cout_ventes = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
     marge = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)

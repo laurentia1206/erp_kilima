@@ -623,6 +623,7 @@ COMPTES_CONFIG = [
     ("compte_mobile_money", "Mobile Money (M-Pesa, Airtel, Orange)", "522"),
     ("compte_vente_transport", "Produits de transport (courses)", "706"),
     ("compte_sous_traitance", "Sous-traitance transport (camions tiers)", "612"),
+    ("compte_arsp", "Retenue ARSP (charge du sous-traitant)", "641"),
 ]
 
 
@@ -804,6 +805,8 @@ class EtatComptableViewSet(MetierViewSet):
                     n += 1
             if payload.get("tva_taux_defaut") is not None:
                 _set_parametre("tva.taux_defaut", sid, str(payload["tva_taux_defaut"]))
+            if payload.get("arsp_taux_defaut") is not None:
+                _set_parametre("arsp.taux_defaut", sid, str(payload["arsp_taux_defaut"]))
             services.enregistrer_audit(request.user.id, "CONFIG", "comptes_config", None, None,
                                        {"maj": n})
             return Response({"ok": True, "modifies": n})
@@ -815,7 +818,9 @@ class EtatComptableViewSet(MetierViewSet):
             comptes.append({"cle": cle, "libelle": libelle, "valeur": val, "defaut": defaut,
                             "intitule": intitules.get(val, "")})
         tva = services.get_parametre("tva.taux_defaut", sid, "16")
-        return Response({"comptes": comptes, "tva_taux_defaut": float(tva)})
+        arsp = services.get_parametre("arsp.taux_defaut", sid, "1.2")
+        return Response({"comptes": comptes, "tva_taux_defaut": float(tva),
+                         "arsp_taux_defaut": float(arsp)})
 
 
     @action(detail=False, methods=['get'])

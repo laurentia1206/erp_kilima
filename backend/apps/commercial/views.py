@@ -232,7 +232,9 @@ def _reglement_facture(f: Facture) -> dict:
     fournisseurs, notamment via le circuit « paiement sur justificatif »)."""
     regle = round(sum(float(p.montant_usd) for p in PaiementFacture.objects.filter(
         facture_id=f.id).exclude(mode="credit")), 2)
-    solde = round(float(f.total_ttc) - regle, 2)
+    # La retenue ARSP est prélevée par le client : le net exigible l'exclut.
+    net = round(float(f.total_ttc) - float(getattr(f, "montant_arsp", 0) or 0), 2)
+    solde = round(net - regle, 2)
     statut = "payee" if solde <= 0.009 else ("partielle" if regle > 0 else "due")
     retard = bool(f.echeance and solde > 0.009 and f.echeance < date.today())
     out = {"regle_usd": regle, "solde_du_usd": max(solde, 0.0),
@@ -300,6 +302,9 @@ def _facture_dict(f: Facture) -> dict:
         "reference": f.reference,
         "total_ht": float(f.total_ht), "total_frais": float(f.total_frais),
         "total_tva": float(f.total_tva), "total_ttc": float(f.total_ttc),
+        "arsp_pct": float(f.arsp_pct) if f.arsp_pct is not None else None,
+        "montant_arsp": float(f.montant_arsp or 0),
+        "net_a_payer": round(float(f.total_ttc) - float(f.montant_arsp or 0), 2),
         "repartition": f.repartition,
         "cout_ventes": float(f.cout_ventes) if f.cout_ventes is not None else None,
         "marge": float(f.marge) if f.marge is not None else None,
@@ -440,6 +445,26 @@ def _creer_facture(request, sid):
         fac.total_tva = round(total_tva + total_frais_tva, 2)
         fac.total_ttc = round(total_ht + total_frais + total_tva + total_frais_tva, 2)
         fac.repartition = repartition
+
+        # ── Retenue ARSP (vente de sous-traitance) ───────────────────
+        if payload.get("arsp_pct") not in (None, "", 0, "0"):
+            try:
+                arsp_pct = float(payload["arsp_pct"])
+            except (TypeError, ValueError):
+                return refus({"detail": "Taux ARSP invalide."}, status=422)
+            if not 0 < arsp_pct <= 100:
+                return refus({"detail": "Le taux ARSP doit être entre 0 et 100 %."},
+                             status=422)
+            if type_ != "vente":
+                return refus({"detail": "La retenue ARSP ne se déclare que sur une "
+                                        "facture de vente (elle est à la charge de "
+                                        "l'émetteur sous-traitant)."}, status=422)
+            if fac.intra_groupe:
+                return refus({"detail": "Retenue ARSP non applicable sur une facture "
+                                        "intragroupe (le miroir acheteur ne la "
+                                        "porterait pas)."}, status=422)
+            fac.arsp_pct = arsp_pct
+            fac.montant_arsp = round(fac.total_ht * arsp_pct / 100, 2)
 
         # ── Mouvements de stock (CUMP, dépôt central) ────────────────
         cout_ventes = 0.0

@@ -29,6 +29,8 @@ DEFAUT = {
     # Espèces des tickets POS : compte de transit (585 virements de fonds).
     # La remise en caisse est passée à la clôture de session, pour revue comptable.
     "compte_tampon_pos": "585",
+    # Retenue ARSP (sous-traitance RDC) : charge de l'émetteur de la facture.
+    "compte_arsp": "641",
 }
 
 
@@ -272,10 +274,18 @@ def comptabiliser_facture(facture, lignes_facture, created_by,
     else:
         ttc = round(float(facture.total_ttc), 2)
         tva = round(float(facture.total_tva), 2)
+        arsp = round(float(getattr(facture, "montant_arsp", 0) or 0), 2)
         lignes.append({"sens": "D",
                        "compte": _compte_tiers(tiers, "compte_client", societe_id),
-                       "montant_usd": ttc, "tiers_id": tiers.id,
-                       "libelle": f"Client {tiers.nom} — {facture.numero}"})
+                       "montant_usd": round(ttc - arsp, 2), "tiers_id": tiers.id,
+                       "libelle": f"Client {tiers.nom} — {facture.numero}"
+                                  + (" (net de retenue ARSP)" if arsp else "")})
+        if arsp:
+            # Retenue opérée par le client, supportée en charge par l'émetteur.
+            lignes.append({"sens": "D", "compte": _compte("compte_arsp", societe_id),
+                           "montant_usd": arsp,
+                           "libelle": f"Retenue ARSP "
+                                      f"{float(facture.arsp_pct):g} % — {facture.numero}"})
         by_compte: dict[str, float] = {}
         for l in lignes_facture:
             art = _art(l.article_id)
