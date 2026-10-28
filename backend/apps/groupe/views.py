@@ -691,6 +691,9 @@ class FactureViewSet(MetierModelViewSet):
                     facture_id=fac.id, mode=mode, devise="USD",
                     montant=montant, montant_usd=montant, reference=ref,
                     compte=cpt_v if fac is fac_v else cpt_a)
+                # TVA sur les encaissements : exigible des deux côtés au prorata.
+                comptabilite.comptabiliser_tva_encaissement(fac, request.user.id,
+                                                            statut="en_attente")
             if caisse_a:
                 MouvementCaisse.objects.create(
                     caisse_id=caisse_a.id, session_id=sess_a.id,

@@ -1,6 +1,7 @@
 export interface VatState {
   mois: string; du: string; au: string; devise: string; note: string;
-  comptes: { collectee: string; deductible: string };
+  comptes: { collectee: string; deductible: string; attente_vente?: string; attente_achat?: string };
+  en_attente?: { tva_ventes_non_encaissees_usd: string; tva_achats_non_payes_usd: string };
   totaux: { valide: { collectee: string; deductible: string }; en_attente: { collectee: string; deductible: string } };
   solde_mouvements_usd: string;
   ventilation_taux: { sens: string; taux: string; ht_usd: string; tva_usd: string }[];

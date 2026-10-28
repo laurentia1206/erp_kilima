@@ -36,8 +36,14 @@ def rapport_tva(sid, mois):
     du, au = periode_mensuelle(mois)
     collecte = comptabilite._compte('tva_collectee', sid)
     deduction = comptabilite._compte('tva_deductible', sid)
-    if not collecte or not deduction or collecte.startswith(deduction) or deduction.startswith(collecte):
-        raise ValidationError('Les comptes TVA collectée et déductible doivent être distincts, sans recouvrement.')
+    attente_v = comptabilite._compte('tva_attente_vente', sid)
+    attente_a = comptabilite._compte('tva_attente_achat', sid)
+    comptes = [collecte, deduction, attente_v, attente_a]
+    if not all(comptes) or len(set(comptes)) != 4 \
+            or any(a != b and (a.startswith(b) or b.startswith(a))
+                   for a in comptes for b in comptes):
+        raise ValidationError('Les comptes TVA (collectée, déductible et comptes '
+                              "d'attente) doivent être distincts, sans recouvrement.")
     lignes = LigneEcriture.objects.select_related('ecriture').filter(
         societe_id=sid, ecriture__societe_id=sid,
         ecriture__date_ecriture__range=(du, au)).filter(
@@ -70,8 +76,23 @@ def rapport_tva(sid, mois):
             signe = -1 if f.type.startswith('avoir') else 1
             groupe['ht'] += signe*l.montant_ht
             groupe['tva'] += signe*l.montant_tva
+    # TVA facturée non encore exigible : soldes cumulés des comptes d'attente
+    # à la fin du mois (ventes à encaisser / achats à payer).
+    attente = {attente_v: Decimal(0), attente_a: Decimal(0)}
+    for l in LigneEcriture.objects.select_related('ecriture').filter(
+            societe_id=sid, ecriture__societe_id=sid,
+            ecriture__date_ecriture__lte=au).filter(
+                Q(compte_numero__startswith=attente_v)
+                | Q(compte_numero__startswith=attente_a)
+            ).exclude(ecriture__statut__in=['annulee', 'annule']):
+        cle = attente_v if l.compte_numero.startswith(attente_v) else attente_a
+        signe = 1 if l.sens == ('C' if cle == attente_v else 'D') else -1
+        attente[cle] += l.montant_usd * signe
     return {'mois': mois, 'du': du.isoformat(), 'au': au.isoformat(), 'devise': 'USD',
-        'comptes': {'collectee': collecte, 'deductible': deduction},
+        'comptes': {'collectee': collecte, 'deductible': deduction,
+                    'attente_vente': attente_v, 'attente_achat': attente_a},
+        'en_attente': {'tva_ventes_non_encaissees_usd': str(attente[attente_v]),
+                       'tva_achats_non_payes_usd': str(attente[attente_a])},
         'totaux': {s: {k: str(v) for k, v in values.items()} for s, values in totals.items()},
         'solde_mouvements_usd': str(totals['valide']['collectee'] - totals['valide']['deductible']),
         'ventilation_taux': [{'sens': sens, 'taux': str(t), 'ht_usd': str(v['ht']), 'tva_usd': str(v['tva'])} for (sens, t), v in sorted(taux.items())],

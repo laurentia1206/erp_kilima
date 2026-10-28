@@ -31,7 +31,26 @@ DEFAUT = {
     "compte_tampon_pos": "585",
     # Retenue ARSP (sous-traitance RDC) : charge de l'émetteur de la facture.
     "compte_arsp": "641",
+    # TVA sur les encaissements : la TVA facturée n'est exigible (collectée ou
+    # déductible) qu'au règlement ; en attendant elle loge dans ces comptes.
+    "tva_attente_vente": "4435",
+    "tva_attente_achat": "4455",
 }
+
+INTITULES_TVA_ATTENTE = {
+    "tva_attente_vente": "État, TVA facturée en attente d'encaissement",
+    "tva_attente_achat": "État, TVA sur achats en attente de paiement",
+}
+
+
+def _compte_cree(cle: str, societe_id, intitule: str) -> str:
+    """Compte paramétré, ajouté au plan comptable s'il n'y figure pas encore."""
+    numero = _compte(cle, societe_id)
+    Compte.objects.get_or_create(
+        societe_id=societe_id, numero=numero,
+        defaults={"intitule": intitule, "classe": numero[:1] or None,
+                  "auxiliaire": False})
+    return numero
 
 
 def _compte(cle: str, societe_id) -> str:
@@ -239,9 +258,14 @@ def comptabiliser_facture(facture, lignes_facture, created_by,
             lignes.append({"sens": "D", "compte": compte, "montant_usd": round(ht, 2),
                            "libelle": f"Achat {facture.numero}"})
         if round(goods_tva, 2):
-            lignes.append({"sens": "D", "compte": _compte("tva_deductible", societe_id),
+            # TVA sur les décaissements : déductible seulement au paiement
+            # (comptabiliser_tva_encaissement bascule au prorata des règlements).
+            lignes.append({"sens": "D",
+                           "compte": _compte_cree("tva_attente_achat", societe_id,
+                                                  INTITULES_TVA_ATTENTE["tva_attente_achat"]),
                            "montant_usd": round(goods_tva, 2),
-                           "libelle": f"TVA déductible {facture.numero}"})
+                           "libelle": f"TVA sur achat (déductible au paiement) "
+                                      f"{facture.numero}"})
         goods_ttc = round(goods_ht + goods_tva, 2)
         if goods_ttc:
             lignes.append({"sens": "C",
@@ -295,8 +319,14 @@ def comptabiliser_facture(facture, lignes_facture, created_by,
             lignes.append({"sens": "C", "compte": compte, "montant_usd": round(ht, 2),
                            "libelle": f"Vente {facture.numero}"})
         if tva:
-            lignes.append({"sens": "C", "compte": _compte("tva_collectee", societe_id),
-                           "montant_usd": tva, "libelle": f"TVA collectée {facture.numero}"})
+            # TVA sur les encaissements : collectée seulement quand le client
+            # paie (bascule au prorata par comptabiliser_tva_encaissement).
+            lignes.append({"sens": "C",
+                           "compte": _compte_cree("tva_attente_vente", societe_id,
+                                                  INTITULES_TVA_ATTENTE["tva_attente_vente"]),
+                           "montant_usd": tva,
+                           "libelle": f"TVA facturée (exigible à l'encaissement) "
+                                      f"{facture.numero}"})
         jcode, jlib, jtyp = "VE", "Ventes", "vente"
         lib = f"Facture vente {facture.numero} — {tiers.nom}"
 
@@ -390,8 +420,12 @@ def comptabiliser_facture_reception(facture, reception, created_by,
         lignes.append({"sens": "D", "compte": compte, "montant_usd": round(ht, 2),
                        "libelle": f"Achat {facture.numero}"})
     if goods_tva:
-        lignes.append({"sens": "D", "compte": _compte("tva_deductible", societe_id),
-                       "montant_usd": goods_tva, "libelle": f"TVA déductible {facture.numero}"})
+        lignes.append({"sens": "D",
+                       "compte": _compte_cree("tva_attente_achat", societe_id,
+                                              INTITULES_TVA_ATTENTE["tva_attente_achat"]),
+                       "montant_usd": goods_tva,
+                       "libelle": f"TVA sur achat (déductible au paiement) "
+                                  f"{facture.numero}"})
     # présentation PAR OPÉRATION (lecture comptable) :
     # 1) la facture : D achats + D TVA / C fournisseur ;
     # 2) le solde de la réception : D 408 / C variation de stock.
@@ -406,6 +440,75 @@ def comptabiliser_facture_reception(facture, reception, created_by,
     return post_ecriture(societe_id, "AC", "Achats", "achat", facture.date_facture,
                          f"Facture réception {facture.numero} — {tiers.nom}", lignes,
                          "facture_achat", "facture", facture.id, facture.numero,
+                         created_by, statut=statut)
+
+
+def comptabiliser_tva_encaissement(facture, created_by,
+                                   statut: str = "valide") -> Ecriture | None:
+    """TVA sur les encaissements : au règlement d'une facture, bascule la part
+    de TVA devenue exigible (prorata des montants réglés) du compte d'attente
+    vers la TVA collectée (vente) ou déductible (achat). Les ventes POS,
+    réglées comptant, comptabilisent leur TVA directement et ne passent pas
+    ici."""
+    from apps.commercial.models import PaiementFacture
+    tva_totale = round(float(facture.total_tva), 2)
+    if tva_totale <= 0:
+        return None
+    societe_id = facture.societe_id
+    net = round(float(facture.total_ttc)
+                - float(getattr(facture, "montant_arsp", 0) or 0), 2)
+    if net <= 0:
+        return None
+    cle = "tva_attente_vente" if facture.type == "vente" else "tva_attente_achat"
+    attente_numero = _compte(cle, societe_id)
+    # Sens de la TVA au compte d'attente lors de la facturation (C en vente,
+    # D en achat) ; la bascule mouvemente le sens opposé.
+    sens_initial = "C" if facture.type == "vente" else "D"
+    sens_bascule = "D" if facture.type == "vente" else "C"
+    initial = bascule = 0.0
+    for e in Ecriture.objects.filter(source_type="facture", source_id=facture.id) \
+            .exclude(statut__in=("annulee", "annule")):
+        for l in LigneEcriture.objects.filter(ecriture_id=e.id,
+                                              compte_numero=attente_numero):
+            if l.sens == sens_initial:
+                initial += float(l.montant_usd)
+            else:
+                bascule += float(l.montant_usd)
+    initial = round(initial, 2)
+    deja = round(bascule, 2)
+    if initial < 0.01:
+        # TVA comptabilisée directement (facture antérieure au régime des
+        # encaissements, ou module qui collecte au comptant) : rien à basculer.
+        return None
+    regle = round(sum(float(p.montant_usd)
+                      for p in PaiementFacture.objects.filter(facture_id=facture.id)
+                      .exclude(mode="credit")), 2)
+    attendu = initial if regle >= net - 0.009 \
+        else round(initial * regle / net, 2)
+    delta = round(min(attendu, initial) - deja, 2)
+    if delta < 0.01:
+        return None
+    if facture.type == "vente":
+        attente = _compte_cree("tva_attente_vente", societe_id,
+                               INTITULES_TVA_ATTENTE["tva_attente_vente"])
+        lignes = [{"sens": "D", "compte": attente, "montant_usd": delta,
+                   "libelle": f"TVA devenue exigible — encaissement {facture.numero}"},
+                  {"sens": "C", "compte": _compte("tva_collectee", societe_id),
+                   "montant_usd": delta,
+                   "libelle": f"TVA collectée {facture.numero}"}]
+        jr = ("VE", "Ventes", "vente")
+    else:
+        attente = _compte_cree("tva_attente_achat", societe_id,
+                               INTITULES_TVA_ATTENTE["tva_attente_achat"])
+        lignes = [{"sens": "D", "compte": _compte("tva_deductible", societe_id),
+                   "montant_usd": delta,
+                   "libelle": f"TVA déductible {facture.numero}"},
+                  {"sens": "C", "compte": attente, "montant_usd": delta,
+                   "libelle": f"TVA devenue déductible — paiement {facture.numero}"}]
+        jr = ("AC", "Achats", "achat")
+    return post_ecriture(societe_id, *jr, date.today(),
+                         f"TVA exigible sur règlement {facture.numero}", lignes,
+                         "tva_exigible", "facture", facture.id, facture.numero,
                          created_by, statut=statut)
 
 

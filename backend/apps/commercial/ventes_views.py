@@ -708,6 +708,10 @@ class FactureViewSet(MetierModelViewSet):
                 montant=round(float(montant), 2), taux_jour=taux, montant_usd=montant_usd,
                 reference=(payload.get("reference") or "").strip() or None,
                 compte=compte_tres)
+            # TVA sur les encaissements : la part encaissée devient collectée.
+            comptabilite.comptabiliser_tva_encaissement(
+                fac, request.user.id,
+                statut=intersociete_lib._statut_piece(fac.societe_id, "vente"))
             if caisse:
                 MouvementCaisse.objects.create(
                     caisse_id=caisse.id, session_id=sess.id,

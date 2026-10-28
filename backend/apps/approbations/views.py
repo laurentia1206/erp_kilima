@@ -661,6 +661,9 @@ class OrdreDepenseViewSet(MetierModelViewSet):
                         devise=odp.devise, montant=float(l.montant),
                         taux_jour=odp.taux_jour, montant_usd=float(l.montant_usd),
                         reference=brf.numero, compte=compte_credit)
+                    # TVA sur les décaissements : la part payée devient déductible.
+                    comptabilite.comptabiliser_tva_encaissement(
+                        fac, request.user.id, statut="en_attente")
                     services.enregistrer_audit(
                         request.user.id, "REGLEMENT", "facture", fac.id, None,
                         {"numero": fac.numero, "montant_usd": float(l.montant_usd),
