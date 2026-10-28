@@ -91,6 +91,14 @@
 .business-print-infos p { margin: 2px 0; font-size: 13px; }
 .business-print-total { margin: 14px 0 14px auto; width: fit-content; background: var(--p, #176b61); color: white; font-weight: 700; padding: 10px 16px; border-radius: 8px; }
 
+/* Sélecteur de compte avec recherche (liste filtrée sous le champ). */
+.account-search { position: relative; }
+.account-search-list { position: absolute; top: 100%; left: 0; right: 0; z-index: 40; margin: 0; padding: 4px; list-style: none; background: white; border: 1px solid #dce5e7; border-radius: 10px; box-shadow: 0 14px 40px #152c4833; max-height: 260px; overflow: auto; }
+.account-search-list button { display: block; width: 100%; text-align: left; padding: 8px 10px; border: 0; background: none; border-radius: 6px; font-size: 13px; font-weight: 400; color: var(--text, #1c2b33); cursor: pointer; }
+.account-search-list button:hover, .account-search-list button.active { background: #eef5f3; }
+.account-search-list strong { color: var(--p, #176b61); }
+.account-search-empty { padding: 8px 10px; color: var(--text2, #61717c); font-size: 13px; font-weight: 400; }
+
 /* Bannière des opérations en attente du module courant. */
 .module-pending { border-left: 4px solid #c9962f; }
 .module-pending a { font-weight: 600; }
