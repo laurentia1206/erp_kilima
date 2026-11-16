@@ -626,6 +626,7 @@ COMPTES_CONFIG = [
     ("compte_vente_transport", "Produits de transport (courses)", "706"),
     ("compte_sous_traitance", "Sous-traitance transport (camions tiers)", "612"),
     ("compte_arsp", "Retenue ARSP (charge du sous-traitant)", "641"),
+    ("compte_entretien", "Entretien & pièces de maintenance (consommation stock)", "624"),
 ]
 
 

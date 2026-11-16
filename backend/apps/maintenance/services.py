@@ -21,9 +21,13 @@ from apps.engins.models import PrestationEngin
 SEUIL_BIENTOT = 80  # % de la périodicité à partir duquel on alerte
 
 
-def usage_engin(engin, mode: str) -> dict:
-    """Heures prestées cumulées + dernier index compteur d'un engin."""
-    prestations = list(PrestationEngin.objects.filter(engin_id=engin.id))
+def usage_engin(engin, mode: str, depuis=None) -> dict:
+    """Heures prestées cumulées + dernier index compteur d'un engin.
+    `depuis` (date) limite le cumul : usage depuis le dernier entretien."""
+    q = PrestationEngin.objects.filter(engin_id=engin.id)
+    if depuis:
+        q = q.filter(date_prestation__gte=depuis)
+    prestations = list(q)
     arrets = engins_lib.arrets_par_prestation([p.id for p in prestations])
     minutes = sum(engins_lib.minutes_prestation(p, arrets.get(p.id, []), mode)
                   for p in prestations)
@@ -35,11 +39,14 @@ def usage_engin(engin, mode: str) -> dict:
             "fiches": len(prestations), "dernier_index": dernier_index}
 
 
-def usage_camion(camion) -> dict:
-    """Courses effectuées, heures de route et km parcourus d'un camion."""
+def usage_camion(camion, depuis=None) -> dict:
+    """Courses effectuées, heures de route et km parcourus d'un camion.
+    `depuis` (date) limite le cumul : usage depuis le dernier entretien."""
     courses = (Course.objects.filter(camion_id=camion.id,
                                      heure_depart__isnull=False)
                .exclude(statut="annulee"))
+    if depuis:
+        courses = courses.filter(date_course__gte=depuis)
     heures = km = 0.0
     n = 0
     dernier_km = None

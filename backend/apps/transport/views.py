@@ -776,7 +776,12 @@ def _intervention_dict(i: InterventionCamion) -> dict:
             "date_prevue": i.date_prevue.isoformat() if i.date_prevue else None,
             "date_signalement": i.date_signalement.isoformat(),
             "date_fin": i.date_fin.isoformat() if i.date_fin else None,
-            "requisition": req.numero if req else None}
+            "priorite": i.priorite, "technicien": i.technicien,
+            "checklist": i.checklist or [],
+            "compteur": float(i.compteur) if i.compteur is not None else None,
+            "cout_pieces": float(i.cout_pieces or 0),
+            "requisition": req.numero if req else None,
+            "requisition_statut": req.statut if req else None}
 
 
 class InterventionViewSet(MetierModelViewSet):
@@ -839,6 +844,10 @@ class InterventionViewSet(MetierModelViewSet):
                     date_signalement=date.today(), date_prevue=date_prevue,
                     requisition_id=payload.get("requisition_id"),
                     statut="planifiee" if planifiee else "en_cours",
+                    priorite=payload.get("priorite")
+                    if payload.get("priorite") in ("basse", "normale", "haute",
+                                                   "urgente") else "normale",
+                    technicien=(payload.get("technicien") or "").strip() or None,
                     created_by=request.user.id,
                     created_at=services.maintenant())
                 if immobilise and not planifiee:
@@ -862,6 +871,66 @@ class InterventionViewSet(MetierModelViewSet):
         elif cible == "engin":
             q = q.filter(engin_id__isnull=False)
         return Response([_intervention_dict(i) for i in q.order_by("-created_at")])
+
+
+    def partial_update(self, request, intervention_id):
+        """Fiche d'atelier : priorité, mécanicien, liste de tâches, relevé
+        compteur et informations descriptives, modifiables jusqu'à la clôture."""
+        i = InterventionCamion.objects.filter(id=intervention_id).first()
+        if not i:
+            return refus({"detail": "Intervention introuvable."}, status=404)
+        roles = assert_acces_societe(request.user, i.societe_id)
+        assert_role(roles, ROLES_MAINT)
+        if i.statut == "terminee":
+            return refus({"detail": "Intervention terminée : fiche figée."},
+                         status=409)
+        payload = request.data or {}
+        avant = _intervention_dict(i)
+        if "priorite" in payload:
+            if payload["priorite"] not in ("basse", "normale", "haute", "urgente"):
+                return refus({"detail": "priorite : basse, normale, haute ou "
+                                        "urgente."}, status=422)
+            i.priorite = payload["priorite"]
+        if "technicien" in payload:
+            i.technicien = (payload.get("technicien") or "").strip() or None
+        if "prestataire" in payload:
+            i.prestataire = (payload.get("prestataire") or "").strip() or None
+        if "description" in payload:
+            texte = (payload.get("description") or "").strip()
+            if len(texte) < 3:
+                return refus({"detail": "description requise."}, status=422)
+            i.description = texte
+        if "cout_estime" in payload:
+            i.cout_estime = payload.get("cout_estime") or None
+        if "compteur" in payload:
+            try:
+                i.compteur = float(payload["compteur"]) \
+                    if payload["compteur"] not in (None, "") else None
+            except (TypeError, ValueError):
+                return refus({"detail": "compteur invalide."}, status=422)
+        if "checklist" in payload:
+            brut = payload["checklist"]
+            if not isinstance(brut, list) or len(brut) > 30:
+                return refus({"detail": "checklist : 30 tâches maximum."},
+                             status=422)
+            propre = []
+            for t in brut:
+                if not isinstance(t, dict) or not str(t.get("t") or "").strip():
+                    return refus({"detail": "checklist invalide."}, status=422)
+                propre.append({"t": str(t["t"]).strip()[:200],
+                               "ok": bool(t.get("ok"))})
+            i.checklist = propre
+        if "date_prevue" in payload and i.statut == "planifiee":
+            try:
+                i.date_prevue = date.fromisoformat(payload["date_prevue"]) \
+                    if payload["date_prevue"] else None
+            except (TypeError, ValueError):
+                return refus({"detail": "date_prevue invalide."}, status=422)
+        with transaction.atomic():
+            i.save()
+            services.enregistrer_audit(request.user.id, "UPDATE", "intervention",
+                                       i.id, avant, _intervention_dict(i))
+        return Response(_intervention_dict(i))
 
 
     @action(detail=True, methods=['post'])
@@ -904,15 +973,26 @@ class InterventionViewSet(MetierModelViewSet):
         payload = request.data or {}
         i.statut = "terminee"
         i.date_fin = date.today()
+        if payload.get("compteur") is not None:
+            try:
+                i.compteur = float(payload["compteur"])
+            except (TypeError, ValueError):
+                return refus({"detail": "compteur invalide."}, status=422)
         if payload.get("cout_reel") is not None:
             i.cout_reel = payload["cout_reel"]
-        elif i.requisition_id:
-            total = Justification.objects.filter(
-                avance_id__in=Avance.objects.filter(
-                    ordre_depense_id__in=OrdreDepense.objects.filter(
-                        requisition_id=i.requisition_id).values("id")).values("id")
-            ).aggregate(t=Sum("montant_justifie_usd"))["t"]
-            i.cout_reel = round(float(total or 0), 2) or None
+        else:
+            # Coût réel par défaut : dépenses justifiées de la réquisition
+            # liée + pièces sorties du stock (bons de consommation).
+            total = 0.0
+            if i.requisition_id:
+                just = Justification.objects.filter(
+                    avance_id__in=Avance.objects.filter(
+                        ordre_depense_id__in=OrdreDepense.objects.filter(
+                            requisition_id=i.requisition_id).values("id")).values("id")
+                ).aggregate(t=Sum("montant_justifie_usd"))["t"]
+                total += float(just or 0)
+            total += float(i.cout_pieces or 0)
+            i.cout_reel = round(total, 2) or None
         i.save()
         cible, genre, _libelle = _cible_intervention(i)
         # Entretien issu d'un plan : la clôture fige la « dernière exécution »

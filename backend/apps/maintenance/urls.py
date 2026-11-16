@@ -7,6 +7,9 @@ urlpatterns = [
     path("maintenance/plans", maintenance_views.PlanEntretienViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='plan_entretien')),
     path("maintenance/plans/<uuid:plan_id>", maintenance_views.PlanEntretienViewSet.as_view({'patch': 'partial_update', 'delete': 'destroy'}, http_method_names=['patch', 'delete', 'options'], detail=True, basename='plan_entretien')),
     path("maintenance/plans/<uuid:plan_id>/planifier", maintenance_views.PlanEntretienViewSet.as_view({'post': 'planifier'}, http_method_names=['post', 'options'], detail=True, basename='plan_entretien')),
+    path("maintenance/interventions/<uuid:intervention_id>/requisition", maintenance_views.PiecesInterventionViewSet.as_view({'post': 'requisition'}, http_method_names=['post', 'options'], detail=True, basename='pieces_intervention')),
+    path("maintenance/interventions/<uuid:intervention_id>/consommer", maintenance_views.PiecesInterventionViewSet.as_view({'post': 'consommer'}, http_method_names=['post', 'options'], detail=True, basename='pieces_intervention')),
+    path("maintenance/bons-consommation", maintenance_views.PiecesInterventionViewSet.as_view({'get': 'bons'}, http_method_names=['get', 'options'], detail=False, basename='pieces_intervention')),
     path("flotte/documents", documents_views.DocumentFlotteViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='document_flotte')),
     path("flotte/documents/<uuid:document_id>", documents_views.DocumentFlotteViewSet.as_view({'patch': 'partial_update', 'delete': 'destroy'}, http_method_names=['patch', 'delete', 'options'], detail=True, basename='document_flotte')),
 ]

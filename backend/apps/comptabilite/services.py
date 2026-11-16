@@ -31,6 +31,8 @@ DEFAUT = {
     "compte_tampon_pos": "585",
     # Retenue ARSP (sous-traitance RDC) : charge de l'émetteur de la facture.
     "compte_arsp": "641",
+    # Pièces et consommables sortis du stock pour la maintenance.
+    "compte_entretien": "624",
     # TVA sur les encaissements : la TVA facturée n'est exigible (collectée ou
     # déductible) qu'au règlement ; en attendant elle loge dans ces comptes.
     "tva_attente_vente": "4435",
@@ -570,12 +572,15 @@ def comptabiliser_retour_pos(avoir, lignes_avoir, remboursements: list[dict],
 
 def comptabiliser_stock_sortie(societe_id, stock_par_compte: dict, ref: str, jour,
                                source_type: str, source_id, created_by,
-                               statut: str = "valide") -> Ecriture:
-    """Sortie de stock générique (livraison client) : D 603 (coût des ventes) / C 3x."""
-    var = _compte("variation_stock", societe_id)
+                               statut: str = "valide", compte_debit: str | None = None,
+                               libelle_debit: str | None = None) -> Ecriture:
+    """Sortie de stock générique : D 603 coût des ventes (défaut) / C 3x.
+    `compte_debit`/`libelle_debit` permettent une consommation interne
+    (ex. pièces de maintenance : D 624 entretien / C stock)."""
+    var = compte_debit or _compte("variation_stock", societe_id)
     total = round(sum(stock_par_compte.values()), 2)
     lignes = [{"sens": "D", "compte": var, "montant_usd": total,
-               "libelle": f"Coût des ventes {ref}"}]
+               "libelle": libelle_debit or f"Coût des ventes {ref}"}]
     lignes += [{"sens": "C", "compte": cpt, "montant_usd": round(v, 2),
                 "libelle": f"Sortie stock {ref}"}
                for cpt, v in stock_par_compte.items()]

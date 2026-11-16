@@ -24,12 +24,41 @@ class InterventionCamion(models.Model):
     date_fin = models.DateField(null=True, blank=True)
     requisition_id = models.UUIDField(null=True, blank=True)
     plan_id = models.UUIDField(null=True, blank=True)
+    # Gestion d'atelier : priorité, mécanicien assigné, tâches à cocher,
+    # relevé du compteur (heures ou km) et coût des pièces sorties du stock.
+    priorite = models.CharField(max_length=16, default="normale")
+    technicien = models.CharField(max_length=128, null=True, blank=True)
+    checklist = models.JSONField(default=list)
+    compteur = models.DecimalField(max_digits=12, decimal_places=1, null=True, blank=True)
+    cout_pieces = models.DecimalField(max_digits=18, decimal_places=2, default=0)
     created_by = models.UUIDField(null=True, blank=True)
     created_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         managed = True
         db_table = "intervention_camion"
+
+
+class BonConsommationStock(models.Model):
+    """Bon de sortie magasin : pièces et consommables pris en stock pour une
+    intervention de maintenance (ou un autre usage interne). Le bon décrémente
+    le stock au coût moyen, passe l'écriture D charge d'entretien / C stock,
+    et s'imprime pour signature du gestionnaire de stock."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    societe_id = models.UUIDField()
+    numero = models.CharField(max_length=32)
+    depot_id = models.UUIDField()
+    intervention_id = models.UUIDField(null=True, blank=True)
+    motif = models.CharField(max_length=255)
+    # [{article_id, designation, qte, cout_usd}]
+    lignes = models.JSONField(default=list)
+    total_usd = models.DecimalField(max_digits=18, decimal_places=2, default=0)
+    created_by = models.UUIDField(null=True, blank=True)
+    created_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        managed = True
+        db_table = "bon_consommation_stock"
 
 
 class DocumentFlotte(models.Model):

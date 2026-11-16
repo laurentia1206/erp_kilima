@@ -32,7 +32,8 @@ def module_de_vue(view,request=None):
                 kind=PieceJointe.objects.filter(id=view.kwargs['piece_id']).values_list('document_type',flat=True).first()
             return {'requisition':'approbations','ordre_depense':'tresorerie','avance':'tresorerie','justification':'tresorerie',
                     'ecriture':'comptabilite','facture':'commercial','devis':'commercial','commande':'commercial',
-                    'reception':'commercial','course':'transport','document_flotte':'maintenance'}.get(kind,'administration')
+                    'reception':'commercial','course':'transport','document_flotte':'maintenance',
+                    'intervention':'maintenance'}.get(kind,'administration')
         return 'administration'
     if source=='core.views':
         return {'TiersViewSet':'commercial','TauxChangeViewSet':'comptabilite',
@@ -42,6 +43,9 @@ def module_de_vue(view,request=None):
         if source=='apps.approbations.views':
             if name in ('OrdreDepenseViewSet','AvanceViewSet','BlocageViewSet'): return 'tresorerie'
             if name=='DashboardViewSet': return 'pilotage'
+        # Les interventions (table mutualisée camions + engins) relèvent du
+        # métier maintenance, pas du dispatching transport.
+        if source=='apps.transport.views' and name=='InterventionViewSet': return 'maintenance'
         return source.split('.')[1]
     return None
 

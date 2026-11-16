@@ -239,7 +239,7 @@ from apps.stocks.models import (Article, MouvementStock, Depot, StockDepot, Tran
 from apps.commercial.models import (Facture, LigneFacture, FraisFacture, PaiementFacture, Commande, LigneCommande, Reception, LigneReception, FraisReception, ListePrix, TarifArticle, PointVente, Devis, LigneDevis, Livraison, LigneLivraison)  # noqa: F401,E402
 from apps.hotel.models import (Chambre, Sejour, LigneSejour, FicheTechnique, LigneFicheTechnique, ConsommationCuisine, LigneConsommationCuisine)  # noqa: F401,E402
 from apps.transport.models import (Course, Camion, Chauffeur, ContratTransport, TarifContrat, CourseRequisition, PleinCarburant)  # noqa: F401,E402
-from apps.maintenance.models import (InterventionCamion, DocumentFlotte, PlanEntretien)  # noqa: F401,E402
+from apps.maintenance.models import (InterventionCamion, DocumentFlotte, PlanEntretien, BonConsommationStock)  # noqa: F401,E402
 from apps.engins.models import (Engin, PrestationEngin, ArretPrestationEngin, ReconciliationEngins, HarmonisationEngin)  # noqa: F401,E402
 from apps.groupe.models import (ReceptionInter, LigneReceptionInter)  # noqa: F401,E402
 from apps.rh.models import (RHEquipe, RHHoraire, RHAgent, RHContrat, RHEvenement, RHDocument, RHPointage, RHDemande, RHPolitique, RHDette, RHSimulation, RHDecompte, RHPaieMois, RHBulletin, RHRetenue, RHPaiement)  # noqa: F401,E402

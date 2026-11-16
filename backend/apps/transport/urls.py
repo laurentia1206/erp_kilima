@@ -19,6 +19,7 @@ urlpatterns = [
     path("transport/courses/<uuid:course_id>/annuler", transport_views.CourseViewSet.as_view({'post': 'annuler'}, http_method_names=['post', 'options'], detail=True, basename='course')),
     path("transport/facturer", transport_views.TransportViewSet.as_view({'post': 'facturer'}, http_method_names=['post', 'options'], detail=False, basename='transport')),
     path("transport/interventions", transport_views.InterventionViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='intervention')),
+    path("transport/interventions/<uuid:intervention_id>", transport_views.InterventionViewSet.as_view({'patch': 'partial_update'}, http_method_names=['patch', 'options'], detail=True, basename='intervention')),
     path("transport/interventions/<uuid:intervention_id>/demarrer", transport_views.InterventionViewSet.as_view({'post': 'demarrer'}, http_method_names=['post', 'options'], detail=True, basename='intervention')),
     path("transport/interventions/<uuid:intervention_id>/terminer", transport_views.InterventionViewSet.as_view({'post': 'terminer'}, http_method_names=['post', 'options'], detail=True, basename='intervention')),
     path("transport/rapport", transport_views.TransportViewSet.as_view({'get': 'rapport'}, http_method_names=['get', 'options'], detail=False, basename='transport')),

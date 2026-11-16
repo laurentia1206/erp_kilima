@@ -150,6 +150,7 @@
     "api/transport/courses/<uuid:course_id>/annuler",
     "api/transport/facturer",
     "api/transport/interventions",
+    "api/transport/interventions/<uuid:intervention_id>",
     "api/transport/interventions/<uuid:intervention_id>/demarrer",
     "api/transport/interventions/<uuid:intervention_id>/terminer",
     "api/transport/rapport",
@@ -172,6 +173,9 @@
     "api/maintenance/plans",
     "api/maintenance/plans/<uuid:plan_id>",
     "api/maintenance/plans/<uuid:plan_id>/planifier",
+    "api/maintenance/interventions/<uuid:intervention_id>/requisition",
+    "api/maintenance/interventions/<uuid:intervention_id>/consommer",
+    "api/maintenance/bons-consommation",
     "api/flotte/documents",
     "api/flotte/documents/<uuid:document_id>",
     "api/carburant/pleins",
@@ -599,6 +603,10 @@
     "PlanEntretien": {
       "app": "maintenance",
       "table": "plan_entretien"
+    },
+    "BonConsommationStock": {
+      "app": "maintenance",
+      "table": "bon_consommation_stock"
     },
     "ReceptionInter": {
       "app": "groupe",

@@ -1291,10 +1291,13 @@ class ArticleViewSet(MetierModelViewSet):
     @transaction.atomic
     def _traiter_articles(self, request):
         sid = _societe_param(request)
-        # Lecture ouverte aux caissiers : le POS affiche le catalogue pour
-        # vendre. La création/modification d'articles reste COMPTABLE / DFI
-        # (le POS ouvre son propre formulaire de création, qui exigera ce rôle).
-        _acces(request, sid, ROLES_POS if request.method == "GET" else ROLES)
+        # Lecture ouverte aux caissiers (le POS affiche le catalogue) et à
+        # l'atelier (le mécanicien choisit les pièces du stock pour ses bons
+        # de consommation). La création/modification reste COMPTABLE / DFI.
+        _acces(request, sid,
+               ROLES_POS | {"MAINTENANCIER", "DT", "ASSISTANT_TECHNIQUE",
+                            "ASSISTANT_TECH", "DG"}
+               if request.method == "GET" else ROLES)
         if request.method == "POST":
             payload = request.data or {}
             code = (payload.get("code") or "").strip().upper()

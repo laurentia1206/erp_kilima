@@ -102,6 +102,22 @@
 .account-search-list strong { color: var(--p, #176b61); }
 .account-search-empty { padding: 8px 10px; color: var(--text2, #61717c); font-size: 13px; font-weight: 400; }
 
+/* Atelier maintenance : cartes simples et lisibles pour le mécanicien. */
+.atelier-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; margin: 16px 0; }
+.atelier-card { background: white; border: 1px solid #dce5e7; border-left: 5px solid #8aa3ad; border-radius: 12px; padding: 14px 16px; }
+.atelier-card header { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+.atelier-vehicule { font-size: 16px; }
+.atelier-desc { margin: 4px 0 6px; font-weight: 600; }
+.atelier-card .muted { margin: 2px 0; font-size: 12.5px; }
+.atelier-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.atelier-actions .btn { padding: 9px 13px; }
+.atelier-prio { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 99px; background: #eef2f4; color: #61717c; white-space: nowrap; }
+.atelier-card.prio-haute { border-left-color: #d08a1f; }
+.atelier-card.prio-urgente { border-left-color: #c2401f; }
+.atelier-prio.prio-haute { background: #fdeec9; color: #8a6413; }
+.atelier-prio.prio-urgente { background: #fbe0da; color: #a33a24; }
+.atelier-fait { text-decoration: line-through; color: #61717c; }
+
 /* Bannière des opérations en attente du module courant. */
 .module-pending { border-left: 4px solid #c9962f; }
 .module-pending a { font-weight: 600; }
