@@ -65,10 +65,18 @@ class MaintenancePiecesTests(TestCase):
         self.assertEqual(r.json()['requisition']['montant_usd'], 290.0)
         i = InterventionCamion.objects.get(id=iid)
         self.assertIsNotNone(i.requisition_id)
-        # Une seule réquisition liée par intervention.
-        self.assertEqual(self.client.post(url, {'lignes': [
-            {'description': 'Autre', 'quantite': 1, 'prix_unitaire': 5}]},
-            format='json').status_code, 409)
+        # Plusieurs demandes d'achat possibles pour la même intervention.
+        r = self.client.post(url, {'lignes': [
+            {'description': 'Joint torique', 'quantite': 4, 'prix_unitaire': 5}]},
+            format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        r = self.client.get(
+            f'/api/transport/interventions?societe_id={self.soc.id}')
+        self.assertEqual(r.status_code, 200)
+        fiche = next(x for x in r.json() if x['id'] == iid)
+        self.assertEqual(len(fiche['requisitions']), 2)
+        self.assertEqual(sorted(q['montant_usd'] for q in fiche['requisitions']),
+                         [20.0, 290.0])
 
     def test_bon_de_consommation_stock(self):
         iid = self.intervention['id']

@@ -39,6 +39,19 @@ class InterventionCamion(models.Model):
         db_table = "intervention_camion"
 
 
+class InterventionRequisition(models.Model):
+    """Lien N-N : une intervention peut générer plusieurs demandes d'achat
+    de pièces (réquisitions), au fil du diagnostic."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    intervention_id = models.UUIDField()
+    requisition_id = models.UUIDField()
+    created_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        managed = True
+        db_table = "intervention_requisition"
+
+
 class BonConsommationStock(models.Model):
     """Bon de sortie magasin : pièces et consommables pris en stock pour une
     intervention de maintenance (ou un autre usage interne). Le bon décrémente

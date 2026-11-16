@@ -608,6 +608,10 @@
       "app": "maintenance",
       "table": "bon_consommation_stock"
     },
+    "InterventionRequisition": {
+      "app": "maintenance",
+      "table": "intervention_requisition"
+    },
     "ReceptionInter": {
       "app": "groupe",
       "table": "reception_inter"

@@ -319,17 +319,13 @@ class PiecesInterventionViewSet(MetierViewSet):
         'Génère la réquisition d\'achat des pièces et la lie à l\'intervention\n    (son avancement et ses dépenses justifiées alimentent le coût réel).'
         from apps.approbations.models import Requisition, RequisitionLigne
         from core import domain as domain
+        from apps.maintenance.models import InterventionRequisition
         i = InterventionCamion.objects.filter(id=intervention_id).first()
         if not i:
             return refus({"detail": "Intervention introuvable."}, status=404)
         _acces(request, i.societe_id)
         if i.statut == "terminee":
             return refus({"detail": "Intervention terminée."}, status=409)
-        if i.requisition_id:
-            req = Requisition.objects.filter(id=i.requisition_id).first()
-            return refus({"detail": f"Une réquisition est déjà liée "
-                                    f"({req.numero if req else '?'}) : suivez-la "
-                                    f"dans Réquisitions & validations."}, status=409)
         lignes = (request.data or {}).get("lignes") or []
         if not isinstance(lignes, list) or not lignes:
             return refus({"detail": "Ajoutez au moins une pièce."}, status=422)
@@ -380,8 +376,12 @@ class PiecesInterventionViewSet(MetierViewSet):
             req.montant_total = total
             req.montant_total_usd = total
             req.save(update_fields=["montant_total", "montant_total_usd"])
-            i.requisition_id = req.id
-            i.save(update_fields=["requisition_id"])
+            InterventionRequisition.objects.create(
+                intervention_id=i.id, requisition_id=req.id,
+                created_at=services.maintenant())
+            if not i.requisition_id:
+                i.requisition_id = req.id
+                i.save(update_fields=["requisition_id"])
             services.enregistrer_audit(request.user.id, "INSERT", "requisition",
                                        req.id, None,
                                        {"numero": numero, "module": "maintenance",

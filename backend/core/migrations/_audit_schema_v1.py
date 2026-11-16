@@ -23,6 +23,7 @@ PARENTS={
  'ligne_inventaire_depot':('inventaire_id','inventaire_depot'), 'ligne_sejour':('sejour_id','sejour'),
  'tarif_article':('liste_prix_id','liste_prix'), 'tarif_contrat':('contrat_id','contrat_transport'),
  'course_requisition':('course_id','course'), 'ligne_reception_inter':('reception_id','reception_inter'),
+ 'intervention_requisition':('intervention_id','intervention_camion'),
  'arret_prestation_engin':('prestation_id','prestation_engin'), 'palier_approbateur':('palier_id','palier_validation'),
 }
 

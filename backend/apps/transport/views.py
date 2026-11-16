@@ -760,10 +760,20 @@ def _immobiliser(cible, type_, description):
                               "immobilise_depuis"])
 
 
+def _requisitions_intervention(i: InterventionCamion):
+    """Toutes les réquisitions de pièces liées (lien N-N + champ historique)."""
+    from apps.maintenance.models import InterventionRequisition
+    ids = set(InterventionRequisition.objects.filter(intervention_id=i.id)
+              .values_list("requisition_id", flat=True))
+    if i.requisition_id:
+        ids.add(i.requisition_id)
+    return list(Requisition.objects.filter(id__in=ids).order_by("created_at"))
+
+
 def _intervention_dict(i: InterventionCamion) -> dict:
     cible, genre, libelle = _cible_intervention(i)
-    req = Requisition.objects.filter(id=i.requisition_id).first() \
-        if i.requisition_id else None
+    reqs = _requisitions_intervention(i)
+    req = reqs[0] if reqs else None
     return {"id": str(i.id), "numero": i.numero, "type": i.type, "statut": i.statut,
             "cible": genre, "vehicule": libelle,
             "camion": libelle if genre == "camion" else None,
@@ -781,7 +791,10 @@ def _intervention_dict(i: InterventionCamion) -> dict:
             "compteur": float(i.compteur) if i.compteur is not None else None,
             "cout_pieces": float(i.cout_pieces or 0),
             "requisition": req.numero if req else None,
-            "requisition_statut": req.statut if req else None}
+            "requisition_statut": req.statut if req else None,
+            "requisitions": [{"numero": r.numero, "statut": r.statut,
+                              "montant_usd": float(r.montant_total_usd or 0)}
+                             for r in reqs]}
 
 
 class InterventionViewSet(MetierModelViewSet):
@@ -981,14 +994,15 @@ class InterventionViewSet(MetierModelViewSet):
         if payload.get("cout_reel") is not None:
             i.cout_reel = payload["cout_reel"]
         else:
-            # Coût réel par défaut : dépenses justifiées de la réquisition
-            # liée + pièces sorties du stock (bons de consommation).
+            # Coût réel par défaut : dépenses justifiées de TOUTES les
+            # réquisitions liées + pièces sorties du stock (bons).
             total = 0.0
-            if i.requisition_id:
+            req_ids = [r.id for r in _requisitions_intervention(i)]
+            if req_ids:
                 just = Justification.objects.filter(
                     avance_id__in=Avance.objects.filter(
                         ordre_depense_id__in=OrdreDepense.objects.filter(
-                            requisition_id=i.requisition_id).values("id")).values("id")
+                            requisition_id__in=req_ids).values("id")).values("id")
                 ).aggregate(t=Sum("montant_justifie_usd"))["t"]
                 total += float(just or 0)
             total += float(i.cout_pieces or 0)
