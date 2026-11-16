@@ -46,8 +46,22 @@ def normaliser(p):
             if any(not isinstance(r,list) or len(r)!=len(cols) for r in rows): raise ValidationError('Colonnes incohérentes.')
             for r in rows:
                 for v in r: texte(v if v is not None else '')
-            out.append({'type':'table','colonnes':[texte(c,250) for c in cols],
-                'lignes':[[v if isinstance(v,(int,float)) and not isinstance(v,bool) else texte(v if v is not None else '') for v in r] for r in rows]})
+            table={'type':'table','colonnes':[texte(c,250) for c in cols],
+                'lignes':[[v if isinstance(v,(int,float)) and not isinstance(v,bool) else texte(v if v is not None else '') for v in r] for r in rows]}
+            groupes=b.get('entetes_groupes')
+            if groupes is not None:
+                # En-têtes à deux niveaux (style desktop) : [[titre, nb_colonnes], …]
+                if not isinstance(groupes,list) or not groupes: raise ValidationError('entetes_groupes invalide.')
+                propres=[]
+                for g in groupes:
+                    if not isinstance(g,(list,tuple)) or len(g)!=2: raise ValidationError('entetes_groupes invalide.')
+                    try: span=int(g[1])
+                    except (TypeError,ValueError): raise ValidationError('entetes_groupes invalide.')
+                    if span<1: raise ValidationError('entetes_groupes invalide.')
+                    propres.append([texte(g[0],250),span])
+                if sum(s for _,s in propres)!=len(cols): raise ValidationError("Les groupes d'en-tête doivent couvrir exactement toutes les colonnes.")
+                table['entetes_groupes']=propres
+            out.append(table)
         elif kind=='infos':
             # Cartouches côte à côte (émetteur / destinataire / références…).
             secs=b.get('sections',[])
@@ -76,7 +90,7 @@ def pdf(spec,soc):
     def couleur(v): return colors.HexColor("#"+v)
     from reportlab.lib.pagesizes import A4,landscape
     from reportlab.lib.styles import ParagraphStyle
-    from reportlab.lib.enums import TA_LEFT,TA_RIGHT
+    from reportlab.lib.enums import TA_LEFT,TA_RIGHT,TA_CENTER
     from reportlab.platypus import SimpleDocTemplate,Paragraph,Spacer,Table,TableStyle,KeepTogether
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
@@ -128,9 +142,25 @@ def pdf(spec,soc):
         if b['type']=='table':
             cols=b['colonnes'];n=len(cols)
             # Weight descriptive columns; all content wraps and headers repeat.
-            weights=[2.4 if re.search(r'désignation|description|rubrique|détail|agent|libellé|nom',c,re.I) else 1 for c in cols]
+            weights=[2.4 if re.search(r'désignation|description|rubrique|détail|agent|libellé|nom|engin|machine|équipement|equipement',c,re.I) else 1 for c in cols]
+            groupes=b.get('entetes_groupes')
+            if groupes:
+                # La 1re colonne d'un groupe « identité » (span 1) reste large.
+                j=0
+                for titre,span in groupes:
+                    if span==1 and re.search(r'engin|machine|équipement|equipement|désignation|nom',titre,re.I):
+                        weights[j]=2.4
+                    j+=span
             widths=[width*x/sum(weights) for x in weights]
-            rows=[[p(x,th) for x in cols]]
+            thc=ParagraphStyle('EnteteGroupe',parent=th,alignment=TA_CENTER)
+            rows=[]
+            if groupes:
+                ligne=[]
+                for titre,span in groupes:
+                    ligne.append(p(titre,thc))
+                    ligne.extend(['']*(span-1))
+                rows.append(ligne)
+            rows.append([p(x,th) for x in cols])
             def affiche(v):
                 if isinstance(v,(int,float)):
                     precision=max(2,min(8,-Decimal(str(v)).as_tuple().exponent))
@@ -139,12 +169,29 @@ def pdf(spec,soc):
             for r in b['lignes']:
                 fort=bool(r and re.match(r'^(total|net à payer|résultat|solde)',str(r[0]),re.I))
                 rows.append([p(affiche(v),(right_bold if fort else right) if re.fullmatch(r'[-+\d\s.,%]+(?: USD| CDF| \$)?',str(v)) else (cell_bold if fort else cell)) for v in r])
-            t=Table(rows,colWidths=widths,repeatRows=1,hAlign='LEFT',splitByRow=1,splitInRow=1)
-            t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),couleur(TEAL)),
-                ('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.white,couleur('F3F7F7')]),
+            entetes=2 if groupes else 1
+            t=Table(rows,colWidths=widths,repeatRows=entetes,hAlign='LEFT',splitByRow=1,splitInRow=1)
+            style=[('BACKGROUND',(0,0),(-1,entetes-1),couleur(TEAL)),
+                ('ROWBACKGROUNDS',(0,entetes),(-1,-1),[colors.white,couleur('F3F7F7')]),
                 ('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),8),('RIGHTPADDING',(0,0),(-1,-1),8),
                 ('TOPPADDING',(0,0),(-1,-1),8),('BOTTOMPADDING',(0,0),(-1,-1),8),
-                ('LINEBELOW',(0,0),(-1,0),.7,couleur(TEAL)),('LINEBELOW',(0,1),(-1,-1),.25,couleur('DCE5E5'))]))
+                ('LINEBELOW',(0,entetes-1),(-1,entetes-1),.7,couleur(TEAL)),('LINEBELOW',(0,entetes),(-1,-1),.25,couleur('DCE5E5'))]
+            if groupes:
+                j=0
+                for titre,span in groupes:
+                    if span==1:
+                        # Groupe d'une seule colonne : la cellule occupe les deux
+                        # lignes d'en-tête (style « Machine » du desktop).
+                        style.append(('SPAN',(j,0),(j,1)))
+                        style.append(('VALIGN',(j,0),(j,1),'MIDDLE'))
+                        rows[1][j]=''
+                    else:
+                        style.append(('SPAN',(j,0),(j+span-1,0)))
+                        style.append(('LINEBELOW',(j,0),(j+span-1,0),.5,colors.white))
+                    j+=span
+                style.append(('TOPPADDING',(0,0),(-1,1),6))
+                style.append(('BOTTOMPADDING',(0,0),(-1,1),6))
+            t.setStyle(TableStyle(style))
             story.extend([Spacer(1,7),t,Spacer(1,12)])
         elif b['type']=='infos':
             secs=b['sections'];n=len(secs)
@@ -195,7 +242,17 @@ def xlsx(spec,soc):
     notes=[aplatir(b) for b in spec['blocs'] if b['type']!='table']
     def textcell(c,v): c.value=str(v);c.data_type='s'
     for ix,b in enumerate(tables,1):
-        ws=wb.create_sheet('État' if len(tables)==1 else f'Tableau {ix}');cols=b['colonnes'];n=len(cols);last=get_column_letter(max(2,n))
+        ws=wb.create_sheet('État' if len(tables)==1 else f'Tableau {ix}');cols=b['colonnes']
+        if b.get('entetes_groupes'):
+            # Excel : le groupe est préfixé au libellé (« Heures de jour — h:min »).
+            fusion=[];j=0
+            for titre,span in b['entetes_groupes']:
+                for k in range(span):
+                    c=cols[j+k]
+                    fusion.append(f'{titre} — {c}' if titre and c else titre or c)
+                j+=span
+            cols=fusion
+        n=len(cols);last=get_column_letter(max(2,n))
         for row,value in [(1,soc['nom']),(2,spec['titre']),(3,spec['sous_titre']),(4,soc['references']),(5,'Édité le '+datetime.now().strftime('%d/%m/%Y à %H:%M'))]:
             ws.merge_cells(f'A{row}:{last}{row}');textcell(ws.cell(row,1),value)
             ws.cell(row,1).font=Font(name='Calibri',size=18 if row==2 else 12 if row==1 else 10,bold=row in [1,2],color=TEAL if row==2 else NAVY)

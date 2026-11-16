@@ -84,6 +84,9 @@
 
 .hotel-react-planning th { white-space: nowrap; }
 
+/* Aperçu des rapports : en-têtes de colonnes groupées (style desktop). */
+.business-table .th-groupe { text-align: center; border-bottom: 1px solid #ffffff55; }
+
 /* Aperçu des rapports : cartouches d'identification et total encadré. */
 .business-print-infos { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 14px 0; }
 .business-print-infos > div { background: #f3f7f7; border-top: 3px solid var(--p, #176b61); padding: 12px 14px; border-radius: 0 0 8px 8px; }

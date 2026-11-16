@@ -58,13 +58,13 @@ export function Dialog({ bridge, title, children, onClose, footer, busy = false 
   </dialog>, document.getElementById('react-modal-root')!);
 }
 export interface ReportInfoSection { titre: string; lignes: string[] }
-export interface Report { title: string; subtitle: string; columns: string[]; rows: (string | number)[][]; note?: string; infos?: ReportInfoSection[]; total?: string; signatures?: string }
+export interface Report { title: string; subtitle: string; columns: string[]; rows: (string | number)[][]; note?: string; infos?: ReportInfoSection[]; total?: string; signatures?: string; columnGroups?: [string, number][] }
 export async function exportReport(bridge: Bridge, companyId: string | null, report: Report, format: 'pdf' | 'xlsx') {
   if (!companyId) throw new Error('Sélectionnez une société.');
   await bridge.download(`/editions/telecharger?societe_id=${encodeURIComponent(companyId)}`, report.title.replace(/[<>:"/\\|?*]/g, ' ') + '.' + format,
     { titre: report.title, sous_titre: report.subtitle, format, blocs: [
       ...(report.infos?.length ? [{ type: 'infos', sections: report.infos.map(s => ({ titre: s.titre, lignes: s.lignes.filter(l => l && l.trim()) })) }] : []),
-      { type: 'table', colonnes: report.columns, lignes: report.rows },
+      { type: 'table', colonnes: report.columns, lignes: report.rows, ...(report.columnGroups?.length ? { entetes_groupes: report.columnGroups } : {}) },
       ...(report.total ? [{ type: 'total', texte: report.total }] : []),
       ...(report.note ? [{ type: 'texte', texte: report.note }] : []),
       ...(report.signatures ? [{ type: 'signatures', texte: report.signatures }] : [])] });
@@ -73,6 +73,6 @@ export function ReportPreview({ bridge, state, report, onClose }: ScreenProps & 
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const download = async (format: 'pdf' | 'xlsx') => { setBusy(true); setError(''); try { await exportReport(bridge, state.companyId, report, format); } catch (e) { setError(message(e)); } finally { setBusy(false); } };
   return <Dialog bridge={bridge} title="Aperçu du rapport" busy={busy} onClose={onClose} footer={close => <><button type="button" className="btn" disabled={busy} onClick={close}>Fermer</button><button type="button" className="btn" disabled={busy} onClick={() => window.print()}>Imprimer</button>{!state.user?.super_administrateur && state.companyId && <><button type="button" className="btn" disabled={busy} onClick={() => download('xlsx')}><i className="ti ti-file-spreadsheet" aria-hidden="true" /> Excel</button><button type="button" className="btn btn-primary" disabled={busy} onClick={() => download('pdf')}>Télécharger le PDF</button></>}</>}>
-    <ErrorNotice error={error} /><article className="business-print"><header><strong>{state.user?.super_administrateur ? 'KILIMA HOLDINGS · Administration du système' : state.companies.find(c => c.id === state.companyId)?.nom}</strong></header><h2>{report.title}</h2><p>{report.subtitle}</p>{!!report.infos?.length && <div className="business-print-infos">{report.infos.map((s, i) => <div key={i}><strong>{s.titre}</strong>{s.lignes.filter(l => l && l.trim()).map((l, j) => <p key={j}>{l}</p>)}</div>)}</div>}<div className="business-table"><table><thead><tr>{report.columns.map(c => <th key={c}>{c}</th>)}</tr></thead><tbody>{report.rows.map((row, i) => <tr key={i}>{row.map((v, j) => <td key={j} className={typeof v === 'number' ? 'right' : undefined}>{typeof v === 'number' ? number(v) : v}</td>)}</tr>)}</tbody></table></div>{report.total && <p className="business-print-total">{report.total}</p>}<p>{report.note}</p></article>
+    <ErrorNotice error={error} /><article className="business-print"><header><strong>{state.user?.super_administrateur ? 'KILIMA HOLDINGS · Administration du système' : state.companies.find(c => c.id === state.companyId)?.nom}</strong></header><h2>{report.title}</h2><p>{report.subtitle}</p>{!!report.infos?.length && <div className="business-print-infos">{report.infos.map((s, i) => <div key={i}><strong>{s.titre}</strong>{s.lignes.filter(l => l && l.trim()).map((l, j) => <p key={j}>{l}</p>)}</div>)}</div>}<div className="business-table"><table><thead>{!!report.columnGroups?.length && <tr>{report.columnGroups.map(([titre, span], i) => <th key={i} colSpan={span} className="th-groupe">{titre}</th>)}</tr>}<tr>{report.columns.map((c, i) => <th key={i}>{c}</th>)}</tr></thead><tbody>{report.rows.map((row, i) => <tr key={i}>{row.map((v, j) => <td key={j} className={typeof v === 'number' ? 'right' : undefined}>{typeof v === 'number' ? number(v) : v}</td>)}</tr>)}</tbody></table></div>{report.total && <p className="business-print-total">{report.total}</p>}<p>{report.note}</p></article>
   </Dialog>;
 }
