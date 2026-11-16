@@ -192,6 +192,8 @@ const NAV = [
     { v: "engins-parc", l: "Parc d'engins", i: "ti-backhoe" },
     { v: "engins-heures", l: "Heures prestées", i: "ti-clock-hour-4" },
     { v: "engins-rpe", l: "RPE & facturation", i: "ti-file-invoice" },
+    { v: "engins-reconciliation", l: "Réconciliation mensuelle", i: "ti-scale" },
+    { v: "engins-rapports", l: "Rapports d'exploitation", i: "ti-chart-bar" },
     { v: "carburant", l: "Suivi carburant", i: "ti-gas-station" },
     { v: "config-engins", l: "Configuration", i: "ti-settings" }] },
   { g: "Hôtel", roles: ["RECEPTIONNISTE", "CAISSIER_CENTRAL", "COMPTABLE", "DFI", "DG"], items: [
@@ -286,6 +288,8 @@ const TITLES = {
   "maintenance-interventions": ["Maintenance — interventions", "Pannes, entretiens et planification — camions et engins confondus"],
   "engins-heures": ["Heures prestées", "Fiches de service journalières — heures arrondies à 5 minutes"],
   "engins-rpe": ["RPE & facturation", "Relevé mensuel de prestation engins, forfait et heures supplémentaires"],
+  "engins-reconciliation": ["Réconciliation mensuelle", "Harmonisation avec le planning du locataire — valeurs retenues, validation et verrouillage du mois"],
+  "engins-rapports": ["Rapports d'exploitation", "Rapport technique (target), disponibilité & sollicitation, évolution sur 12 mois"],
   intersociete: ["Opérations intersociétés", "Positions du groupe, factures miroir et règlements entre sociétés"],
   devis: ["Devis & commandes clients", "Devis → commande → livraison → facture — le cycle de vente complet"],
   ventes: ["Factures de vente", "Factures clients — règlements, TVA collectée & marge"],

@@ -160,6 +160,14 @@
     "api/engins/prestations/<uuid:prestation_id>",
     "api/engins/rpe",
     "api/engins/facturer",
+    "api/engins/reconciliation",
+    "api/engins/reconciliation/valider",
+    "api/engins/reconciliation/rouvrir",
+    "api/engins/harmonisations",
+    "api/engins/harmonisations/<uuid:harmonisation_id>/decider",
+    "api/engins/rapport-technique",
+    "api/engins/disponibilite",
+    "api/engins/evolution",
     "api/maintenance/parc",
     "api/maintenance/plans",
     "api/maintenance/plans/<uuid:plan_id>",
@@ -623,6 +631,14 @@
     "ArretPrestationEngin": {
       "app": "engins",
       "table": "arret_prestation_engin"
+    },
+    "ReconciliationEngins": {
+      "app": "engins",
+      "table": "reconciliation_engins"
+    },
+    "HarmonisationEngin": {
+      "app": "engins",
+      "table": "harmonisation_engin"
     },
     "UtilisateurSociete": {
       "app": "core",

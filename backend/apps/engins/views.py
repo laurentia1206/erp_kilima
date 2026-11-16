@@ -29,22 +29,46 @@ from apps.groupe import services as intersociete_lib
 from core import services as services
 from core.auth import assert_acces_societe, assert_role
 from core.erreurs import refus
-from apps.engins.models import ArretPrestationEngin, Engin, PrestationEngin
+from apps.engins.models import (ArretPrestationEngin, Engin, HarmonisationEngin,
+                                PrestationEngin, ReconciliationEngins)
 from apps.commercial.models import Facture, LigneFacture
 from apps.maintenance.models import InterventionCamion
-from core.models import Parametre, Societe, Tiers
+from core.models import Parametre, Societe, Tiers, Utilisateur
 from core.views import _societe_param
 
 ROLES = {"COMPTABLE", "DFI", "ASSISTANT_TECH", "ASSISTANT_TECHNIQUE", "DT",
          "DISPATCHER", "DG"}
 ROLES_CONFIG = {"DFI", "PRESIDENT", "ADMIN_SYS"}
+# Réouverture d'un mois verrouillé : très haut niveau uniquement.
+ROLES_REOUVERTURE = {"PRESIDENT", "DG", "ADMIN_SYS"}
 
 CLES_CONFIG = {
     "engins.forfait_mensuel_h": ("number", "Forfait mensuel d'heures par engin"),
     "engins.arrondi": ("string", "Arrondi des heures (nearest | down | up)"),
     "engins.rpe_prefix": ("string", "Préfixe des numéros de RPE"),
     "engins.locataire": ("string", "Nom du locataire affiché sur les RPE"),
+    "engins.roles_validation_reconciliation": (
+        "string", "Rôles habilités à valider la réconciliation mensuelle "
+                  "(codes séparés par des virgules)"),
 }
+
+
+def _roles_validation_reconciliation(sid) -> set:
+    brut = services.get_parametre("engins.roles_validation_reconciliation",
+                                  sid, "DT,DFI,DG")
+    return {r.strip().upper() for r in str(brut).split(",") if r.strip()}
+
+
+def _verrou_mois(sid, jour) -> object | None:
+    """Refus 409 si le mois de `jour` est verrouillé par une réconciliation
+    validée (seule la direction peut rouvrir)."""
+    ym = jour.isoformat()[:7]
+    if engins_lib.mois_verrouille(sid, ym):
+        return refus({"detail": f"Mois {ym} verrouillé : la réconciliation a été "
+                                f"validée. Toute correction exige une réouverture "
+                                f"par la direction (PRESIDENT/DG), motivée et "
+                                f"tracée."}, status=409)
+    return None
 
 
 def _acces(request, societe_id, roles_requis=ROLES):
@@ -233,6 +257,9 @@ class PrestationViewSet(MetierModelViewSet):
             champs, arrets, erreur = _lire_prestation(request.data or {}, sid)
             if erreur:
                 return erreur
+            verrou = _verrou_mois(sid, champs["date_prestation"])
+            if verrou:
+                return verrou
             with transaction.atomic():
                 p = PrestationEngin.objects.create(
                     societe_id=sid, **champs,
@@ -274,6 +301,9 @@ class PrestationViewSet(MetierModelViewSet):
         if not p:
             return refus({"detail": "Fiche introuvable."}, status=404)
         _acces(request, p.societe_id)
+        verrou = _verrou_mois(p.societe_id, p.date_prestation)
+        if verrou:
+            return verrou
         if request.method == "DELETE":
             avant = _prestation_dict(p)
             with transaction.atomic():
@@ -300,6 +330,9 @@ class PrestationViewSet(MetierModelViewSet):
         champs, arrets, erreur = _lire_prestation(payload, p.societe_id)
         if erreur:
             return erreur
+        verrou = _verrou_mois(p.societe_id, champs["date_prestation"])
+        if verrou:
+            return verrou
         avant = _prestation_dict(p)
         with transaction.atomic():
             for champ, valeur in champs.items():
@@ -337,6 +370,7 @@ def _rpe_data(sid, ym: str) -> dict:
     synthese = engins_lib.synthese_mois(sid, ym)
     reg = synthese["reglages"]
     mode = reg["arrondi"]
+    rec = synthese["reconciliation"]
     rows = []
     for r in synthese["rows"]:
         e = r["engin"]
@@ -355,12 +389,26 @@ def _rpe_data(sid, ym: str) -> dict:
             "total_dec": engins_lib.dec_val(r["min_total"], mode),
             "supp_hm": engins_lib.fmt_hm(r["supp_min"]),
             "supp_dec": supp_h,
+            "harmonise_min": r["harmonise_min"],
+            "harmonise_hm": engins_lib.fmt_hm(r["harmonise_min"])
+            if r["harmonise_min"] else None,
             "montant_forfait": montant_forfait,
             "montant_supp": montant_supp,
             "montant_total": round(montant_forfait + montant_supp, 2),
         })
     tot = lambda k: round(sum(r[k] for r in rows), 2)  # noqa: E731
     fac = _facture_du_mois(sid, ym)
+    noms_engins = {str(e.id): e.nom
+                   for e in Engin.objects.filter(societe_id=sid)}
+    harmonisations = [
+        {"id": str(h.id), "source": noms_engins.get(str(h.engin_source_id), "?"),
+         "cible": noms_engins.get(str(h.engin_cible_id), "?"), "poste": h.poste,
+         "minutes": h.minutes, "hm": engins_lib.fmt_hm(h.minutes),
+         "statut": h.statut, "motif": h.motif}
+        for h in engins_lib.harmonisations_mois(
+            sid, ym, statuts=("proposee", "approuvee"))]
+    en_attente = sum(1 for h in harmonisations if h["statut"] == "proposee")
+    valide = bool(rec and rec.statut == "validee")
     return {"ym": ym, "reglages": reg,
             "numero_rpe": engins_lib.numero_rpe(ym, reg["rpe_prefix"]),
             "rows": rows,
@@ -369,6 +417,14 @@ def _rpe_data(sid, ym: str) -> dict:
                        "montant_forfait": tot("montant_forfait"),
                        "montant_supp": tot("montant_supp"),
                        "montant_total": tot("montant_total")},
+            # Mention du RPE : DÉFINITIF après validation de la réconciliation.
+            "mention": "DEFINITIF" if valide else "PROVISOIRE",
+            "reconciliation": {
+                "statut": rec.statut, "revision": rec.revision,
+                "valide_at": rec.valide_at.isoformat() if rec.valide_at else None,
+            } if rec else None,
+            "harmonisations": harmonisations,
+            "harmonisations_en_attente": en_attente,
             "facture": {"id": str(fac.id), "numero": fac.numero,
                         "total_ttc": float(fac.total_ttc)} if fac else None}
 
@@ -449,6 +505,16 @@ class ExploitationEnginViewSet(MetierViewSet):
             return refus({"detail": f"Le mois {ym} est déjà facturé "
                                     f"({existante.numero}). Annulez d'abord cette "
                                     f"facture pour refacturer."}, status=409)
+        if not engins_lib.mois_verrouille(sid, ym):
+            return refus({"detail": f"Le mois {ym} n'est pas encore réconcilié : "
+                                    f"enregistrez la réconciliation avec le "
+                                    f"planning du locataire puis faites-la "
+                                    f"valider avant de facturer."}, status=409)
+        if engins_lib.harmonisations_mois(sid, ym, statuts=("proposee",)):
+            return refus({"detail": f"Des harmonisations d'heures du mois {ym} "
+                                    f"attendent encore la décision de la "
+                                    f"hiérarchie : approuvez-les ou rejetez-les "
+                                    f"avant de facturer."}, status=409)
         data = _rpe_data(sid, ym)
         lignes_payload = []
         libelle_mois = f"{ym[5:7]}/{ym[:4]}"
@@ -525,6 +591,547 @@ class ExploitationEnginViewSet(MetierViewSet):
                          "lignes": len(lignes_payload)}, status=201)
 
 
+# ═══ Réconciliation mensuelle, harmonisations & rapports ═════════════
+
+def _nom_utilisateur(uid) -> str | None:
+    if not uid:
+        return None
+    u = Utilisateur.objects.filter(id=uid).first()
+    return (f"{u.prenom} {u.nom}".strip() if u and u.prenom else u.nom) if u else None
+
+
+def _harmonisation_dict(h: HarmonisationEngin, noms_engins: dict) -> dict:
+    return {"id": str(h.id), "ym": h.ym,
+            "engin_source_id": str(h.engin_source_id),
+            "engin_cible_id": str(h.engin_cible_id),
+            "source": noms_engins.get(str(h.engin_source_id), "?"),
+            "cible": noms_engins.get(str(h.engin_cible_id), "?"),
+            "poste": h.poste, "minutes": h.minutes,
+            "hm": engins_lib.fmt_hm(h.minutes),
+            "motif": h.motif, "statut": h.statut,
+            "propose_par": _nom_utilisateur(h.propose_par),
+            "propose_at": h.propose_at.isoformat() if h.propose_at else None,
+            "decide_par": _nom_utilisateur(h.decide_par),
+            "decide_at": h.decide_at.isoformat() if h.decide_at else None,
+            "commentaire_decision": h.commentaire_decision}
+
+
+def _disponible_pour_transfert(sid, ym, engin_source_id, poste,
+                               exclure_id=None) -> int:
+    """Minutes du poste encore cessibles par l'engin source : retenues pures
+    moins les transferts sortants déjà proposés ou approuvés."""
+    base = engins_lib.totaux_retenus(sid, ym).get(str(engin_source_id),
+                                                  {"jour": 0, "nuit": 0})
+    sorties = sum(
+        h.minutes for h in engins_lib.harmonisations_mois(
+            sid, ym, statuts=("proposee", "approuvee"))
+        if str(h.engin_source_id) == str(engin_source_id) and h.poste == poste
+        and (exclure_id is None or h.id != exclure_id))
+    return base.get(poste, 0) - sorties
+
+
+class ReconciliationEnginViewSet(MetierViewSet):
+    """Réconciliation mensuelle avec le planning du locataire, arrangements
+    d'heures entre engins et rapports d'exploitation."""
+
+    @action(detail=False, methods=['get'])
+    def get_reconciliation(self, request):
+        return self._traiter_reconciliation(request)
+
+
+    @action(detail=False, methods=['post'])
+    def post_reconciliation(self, request):
+        return self._traiter_reconciliation(request)
+
+
+    def _traiter_reconciliation(self, request):
+        sid = _societe_param(request)
+        _acces(request, sid)
+        if request.method == "POST":
+            return self._enregistrer_reconciliation(request, sid)
+        ym = _valider_ym(request.query_params.get("ym"))
+        if not ym:
+            return refus({"detail": "ym requis (format YYYY-MM)."}, status=422)
+        jours = engins_lib.jours_du_mois(ym)
+        grille = {str(k): v for k, v in engins_lib.grille_mois(sid, ym).items()}
+        rec = engins_lib.reconciliation_du_mois(sid, ym)
+        donnees = rec.donnees if rec else {}
+        mode = engins_lib.reglages(sid)["arrondi"]
+        engins = list(Engin.objects.filter(societe_id=sid,
+                                           actif=True).order_by("nom"))
+        noms_engins = {str(e.id): e.nom
+                       for e in Engin.objects.filter(societe_id=sid)}
+        lignes = []
+        for e in engins:
+            cle = str(e.id)
+            par_jour = grille.get(cle, {})
+            saisies = donnees.get(cle) or {}
+            detail = {}
+            tot_nous = tot_retenu = 0
+            for date_iso in jours:
+                brut = par_jour.get(date_iso, {"jour": 0, "nuit": 0})
+                d = saisies.get(date_iso) or {}
+                retenu = engins_lib._minutes_retenues(saisies, date_iso, brut, mode)
+                tot_nous += brut["jour"] + brut["nuit"]
+                tot_retenu += retenu["jour"] + retenu["nuit"]
+                detail[date_iso] = {
+                    "nous_jour": brut["jour"], "nous_nuit": brut["nuit"],
+                    "client_jour": d.get("client_jour"),
+                    "client_nuit": d.get("client_nuit"),
+                    "retenu_jour": d.get("retenu_jour"),
+                    "retenu_nuit": d.get("retenu_nuit"),
+                    "note": d.get("note") or ""}
+            lignes.append({"engin_id": cle, "engin": e.nom,
+                           "jours": detail,
+                           "total_nous_min": tot_nous,
+                           "total_retenu_min": tot_retenu})
+        harmonisations = [
+            _harmonisation_dict(h, noms_engins)
+            for h in HarmonisationEngin.objects.filter(societe_id=sid, ym=ym)
+            .order_by("propose_at")]
+        fac = _facture_du_mois(sid, ym)
+        return Response({
+            "ym": ym, "jours": jours,
+            "statut": rec.statut if rec else None,
+            "revision": rec.revision if rec else 0,
+            "verrouille": bool(rec and rec.statut == "validee"),
+            "valide_par": _nom_utilisateur(rec.valide_par) if rec else None,
+            "valide_at": rec.valide_at.isoformat()
+            if rec and rec.valide_at else None,
+            "reouverte_par": _nom_utilisateur(rec.reouverte_par) if rec else None,
+            "motif_reouverture": rec.motif_reouverture if rec else None,
+            "roles_validation": sorted(_roles_validation_reconciliation(sid)),
+            "engins": lignes,
+            "harmonisations": harmonisations,
+            "facture": {"numero": fac.numero} if fac else None})
+
+
+    def _enregistrer_reconciliation(self, request, sid):
+        payload = request.data or {}
+        ym = _valider_ym(payload.get("ym"))
+        if not ym:
+            return refus({"detail": "ym requis (format YYYY-MM)."}, status=422)
+        rec = engins_lib.reconciliation_du_mois(sid, ym)
+        if rec and rec.statut == "validee":
+            return refus({"detail": f"Réconciliation {ym} validée : le mois est "
+                                    f"verrouillé. Demandez une réouverture à la "
+                                    f"direction."}, status=409)
+        if int(payload.get("revision") or 0) != (rec.revision if rec else 0):
+            return refus({"detail": "La réconciliation a été modifiée par un "
+                                    "autre utilisateur. Rechargez-la avant "
+                                    "d'enregistrer."}, status=409)
+        mode = engins_lib.reglages(sid)["arrondi"]
+        jours = set(engins_lib.jours_du_mois(ym))
+        engins_ok = {str(e.id) for e in Engin.objects.filter(societe_id=sid)}
+        brut = payload.get("donnees")
+        if not isinstance(brut, dict):
+            return refus({"detail": "donnees invalides."}, status=422)
+        propres: dict = {}
+        for engin_id, par_jour in brut.items():
+            if str(engin_id) not in engins_ok or not isinstance(par_jour, dict):
+                continue
+            for date_iso, d in par_jour.items():
+                if date_iso not in jours or not isinstance(d, dict):
+                    continue
+                entree = {}
+                for cle in ("client_jour", "client_nuit",
+                            "retenu_jour", "retenu_nuit"):
+                    v = d.get(cle)
+                    if v is None or v == "":
+                        continue
+                    try:
+                        minutes = engins_lib.arrondir(float(v), mode)
+                    except (TypeError, ValueError):
+                        return refus({"detail": f"Valeur invalide ({cle}, "
+                                                f"{date_iso})."}, status=422)
+                    if not 0 <= minutes <= 1440:
+                        return refus({"detail": f"Minutes hors limites ({cle}, "
+                                                f"{date_iso})."}, status=422)
+                    entree[cle] = minutes
+                note = str(d.get("note") or "").strip()[:200]
+                if note:
+                    entree["note"] = note
+                if entree:
+                    propres.setdefault(str(engin_id), {})[date_iso] = entree
+        with transaction.atomic():
+            if rec:
+                rec.donnees = propres
+                rec.revision += 1
+                rec.save(update_fields=["donnees", "revision"])
+            else:
+                rec = ReconciliationEngins.objects.create(
+                    societe_id=sid, ym=ym, donnees=propres, revision=1,
+                    created_by=request.user.id, created_at=services.maintenant())
+            services.enregistrer_audit(request.user.id, "RECONCILIATION",
+                                       "reconciliation_engins", rec.id, None,
+                                       {"ym": ym, "revision": rec.revision})
+        return Response({"ok": True, "revision": rec.revision})
+
+
+    @action(detail=False, methods=['post'])
+    def valider(self, request):
+        'Valide la réconciliation du mois : le responsable fige les valeurs\n    retenues et verrouille toute saisie du mois.'
+        sid = _societe_param(request)
+        roles = assert_acces_societe(request.user, sid)
+        assert_role(roles, _roles_validation_reconciliation(sid))
+        payload = request.data or {}
+        ym = _valider_ym(payload.get("ym"))
+        if not ym:
+            return refus({"detail": "ym requis (format YYYY-MM)."}, status=422)
+        rec = engins_lib.reconciliation_du_mois(sid, ym)
+        if not rec:
+            return refus({"detail": "Enregistrez d'abord la réconciliation du "
+                                    "mois (même sans divergence) avant de la "
+                                    "valider."}, status=400)
+        if rec.statut == "validee":
+            return refus({"detail": "Réconciliation déjà validée."}, status=409)
+        if int(payload.get("revision") or 0) != rec.revision:
+            return refus({"detail": "La réconciliation a changé depuis votre "
+                                    "lecture. Rechargez-la avant de valider."},
+                         status=409)
+        with transaction.atomic():
+            rec.statut = "validee"
+            rec.valide_par = request.user.id
+            rec.valide_at = services.maintenant()
+            rec.save(update_fields=["statut", "valide_par", "valide_at"])
+            services.enregistrer_audit(request.user.id, "VALIDE_RECONCILIATION",
+                                       "reconciliation_engins", rec.id, None,
+                                       {"ym": ym})
+        return Response({"ok": True, "statut": "validee"})
+
+
+    @action(detail=False, methods=['post'])
+    def rouvrir(self, request):
+        'Réouverture de très haut niveau (PRESIDENT/DG) d\'un mois verrouillé,\n    motif obligatoire et tracé dans le journal d\'audit.'
+        sid = _societe_param(request)
+        roles = assert_acces_societe(request.user, sid)
+        assert_role(roles, ROLES_REOUVERTURE)
+        payload = request.data or {}
+        ym = _valider_ym(payload.get("ym"))
+        if not ym:
+            return refus({"detail": "ym requis (format YYYY-MM)."}, status=422)
+        rec = engins_lib.reconciliation_du_mois(sid, ym)
+        if not rec or rec.statut != "validee":
+            return refus({"detail": "Ce mois n'est pas verrouillé."}, status=409)
+        fac = _facture_du_mois(sid, ym)
+        if fac:
+            return refus({"detail": f"Le mois {ym} est facturé "
+                                    f"({fac.numero}) : annulez d'abord la "
+                                    f"facture avant de rouvrir la "
+                                    f"réconciliation."}, status=409)
+        motif = str(payload.get("motif") or "").strip()
+        if len(motif) < 10:
+            return refus({"detail": "Motif de réouverture requis "
+                                    "(au moins 10 caractères)."}, status=422)
+        with transaction.atomic():
+            rec.statut = "en_cours"
+            rec.reouverte_par = request.user.id
+            rec.reouverte_at = services.maintenant()
+            rec.motif_reouverture = motif[:255]
+            rec.save(update_fields=["statut", "reouverte_par", "reouverte_at",
+                                    "motif_reouverture"])
+            services.enregistrer_audit(request.user.id, "ROUVRE_RECONCILIATION",
+                                       "reconciliation_engins", rec.id, None,
+                                       {"ym": ym, "motif": motif[:255]})
+        return Response({"ok": True, "statut": "en_cours"})
+
+
+    @action(detail=False, methods=['get'])
+    def get_harmonisations(self, request):
+        return self._traiter_harmonisations(request)
+
+
+    @action(detail=False, methods=['post'])
+    def post_harmonisations(self, request):
+        return self._traiter_harmonisations(request)
+
+
+    def _traiter_harmonisations(self, request):
+        sid = _societe_param(request)
+        _acces(request, sid)
+        if request.method != "POST":
+            ym = _valider_ym(request.query_params.get("ym"))
+            if not ym:
+                return refus({"detail": "ym requis (format YYYY-MM)."}, status=422)
+            noms = {str(e.id): e.nom for e in Engin.objects.filter(societe_id=sid)}
+            return Response([
+                _harmonisation_dict(h, noms)
+                for h in HarmonisationEngin.objects.filter(societe_id=sid, ym=ym)
+                .order_by("propose_at")])
+        payload = request.data or {}
+        ym = _valider_ym(payload.get("ym"))
+        if not ym:
+            return refus({"detail": "ym requis (format YYYY-MM)."}, status=422)
+        fac = _facture_du_mois(sid, ym)
+        if fac:
+            return refus({"detail": f"Le mois {ym} est déjà facturé "
+                                    f"({fac.numero}) : plus d'harmonisation "
+                                    f"possible sans annuler la facture."},
+                         status=409)
+        source = Engin.objects.filter(id=payload.get("engin_source_id")).first()
+        cible = Engin.objects.filter(id=payload.get("engin_cible_id")).first()
+        if not source or not cible or str(source.societe_id) != str(sid) \
+                or str(cible.societe_id) != str(sid):
+            return refus({"detail": "Engins source et cible requis."}, status=400)
+        if source.id == cible.id:
+            return refus({"detail": "La source et la cible doivent être deux "
+                                    "engins différents."}, status=422)
+        poste = payload.get("poste", "jour")
+        if poste not in ("jour", "nuit"):
+            return refus({"detail": "poste : jour ou nuit."}, status=422)
+        mode = engins_lib.reglages(sid)["arrondi"]
+        try:
+            minutes = engins_lib.arrondir(float(payload.get("minutes")), mode)
+        except (TypeError, ValueError):
+            return refus({"detail": "minutes invalides."}, status=422)
+        if minutes <= 0:
+            return refus({"detail": "minutes invalides."}, status=422)
+        motif = str(payload.get("motif") or "").strip()
+        if len(motif) < 5:
+            return refus({"detail": "Motif de l'arrangement requis."}, status=422)
+        disponible = _disponible_pour_transfert(sid, ym, source.id, poste)
+        if minutes > disponible:
+            return refus({"detail": f"{source.nom} ne dispose que de "
+                                    f"{engins_lib.fmt_hm(max(0, disponible))} "
+                                    f"cessibles en poste {poste} sur {ym} "
+                                    f"(retenues moins transferts déjà "
+                                    f"proposés)."}, status=422)
+        with transaction.atomic():
+            h = HarmonisationEngin.objects.create(
+                societe_id=sid, ym=ym, engin_source_id=source.id,
+                engin_cible_id=cible.id, poste=poste, minutes=minutes,
+                motif=motif[:255], propose_par=request.user.id,
+                propose_at=services.maintenant())
+            services.enregistrer_audit(request.user.id, "INSERT",
+                                       "harmonisation_engin", h.id, None,
+                                       {"ym": ym, "source": source.nom,
+                                        "cible": cible.nom, "minutes": minutes})
+        noms = {str(source.id): source.nom, str(cible.id): cible.nom}
+        return Response(_harmonisation_dict(h, noms), status=201)
+
+
+    @action(detail=True, methods=['post'])
+    def decider(self, request, harmonisation_id):
+        'La hiérarchie approuve ou rejette un arrangement d\'heures proposé.'
+        h = HarmonisationEngin.objects.filter(id=harmonisation_id).first()
+        if not h:
+            return refus({"detail": "Harmonisation introuvable."}, status=404)
+        sid = h.societe_id
+        roles = assert_acces_societe(request.user, sid)
+        assert_role(roles, _roles_validation_reconciliation(sid))
+        if h.statut != "proposee":
+            return refus({"detail": f"Déjà {h.statut}."}, status=409)
+        fac = _facture_du_mois(sid, h.ym)
+        if fac:
+            return refus({"detail": f"Le mois {h.ym} est déjà facturé "
+                                    f"({fac.numero})."}, status=409)
+        decision = (request.data or {}).get("decision")
+        if decision not in ("approuvee", "rejetee"):
+            return refus({"detail": "decision : approuvee ou rejetee."},
+                         status=422)
+        if decision == "approuvee":
+            disponible = _disponible_pour_transfert(sid, h.ym, h.engin_source_id,
+                                                    h.poste, exclure_id=h.id)
+            if h.minutes > disponible:
+                return refus({"detail": "Les heures cessibles de la source ne "
+                                        "suffisent plus pour approuver ce "
+                                        "transfert."}, status=409)
+        with transaction.atomic():
+            h.statut = decision
+            h.decide_par = request.user.id
+            h.decide_at = services.maintenant()
+            h.commentaire_decision = str((request.data or {})
+                                         .get("commentaire") or "").strip()[:255] \
+                or None
+            h.save(update_fields=["statut", "decide_par", "decide_at",
+                                  "commentaire_decision"])
+            services.enregistrer_audit(request.user.id, "DECISION",
+                                       "harmonisation_engin", h.id, None,
+                                       {"ym": h.ym, "decision": decision})
+        noms = {str(e.id): e.nom
+                for e in Engin.objects.filter(societe_id=sid)}
+        return Response(_harmonisation_dict(h, noms))
+
+
+    @action(detail=False, methods=['get'])
+    def rapport_technique(self, request):
+        'Suivi du target journalier : cumul des heures retenues vs forfait\n    réparti sur le mois, écart en heures et en jours, comparaison N-1.'
+        sid = _societe_param(request)
+        _acces(request, sid)
+        ym = _valider_ym(request.query_params.get("ym"))
+        if not ym:
+            return refus({"detail": "ym requis (format YYYY-MM)."}, status=422)
+        reg = engins_lib.reglages(sid)
+        mode = reg["arrondi"]
+        jours = engins_lib.jours_du_mois(ym)
+        nb_jours = len(jours)
+        jusquau = request.query_params.get("jusquau") or ""
+        j_lim = nb_jours
+        if jusquau[:7] == ym:
+            try:
+                j_lim = min(nb_jours, max(1, int(jusquau[8:10])))
+            except ValueError:
+                pass
+        elif date.today().isoformat()[:7] == ym:
+            j_lim = min(nb_jours, date.today().day)
+        forfait_min = int(reg["forfait_mensuel_h"] * 60)
+        target_jour = forfait_min / nb_jours
+        target_cumule = target_jour * j_lim
+
+        annee, mois = int(ym[:4]), int(ym[5:7])
+        pym = f"{annee - 1}-12" if mois == 1 else f"{annee}-{mois - 1:02d}"
+        nb_jours_prec = len(engins_lib.jours_du_mois(pym))
+        j_lim_prec = min(j_lim, nb_jours_prec)
+        target_cumule_prec = (forfait_min / nb_jours_prec) * j_lim_prec
+
+        cumuls = engins_lib.totaux_retenus(sid, ym, jusqu_au_jour=j_lim)
+        cumuls_prec = engins_lib.totaux_retenus(sid, pym,
+                                                jusqu_au_jour=j_lim_prec)
+        rows = []
+        for e in Engin.objects.filter(societe_id=sid, actif=True).order_by("nom"):
+            c = cumuls.get(str(e.id), {"jour": 0, "nuit": 0})
+            cumul = c["jour"] + c["nuit"]
+            cp = cumuls_prec.get(str(e.id), {"jour": 0, "nuit": 0})
+            cumul_prec = cp["jour"] + cp["nuit"]
+            ecart = cumul - target_cumule
+            rows.append({
+                "engin_id": str(e.id), "engin": e.nom,
+                "cumul_hm": engins_lib.fmt_hm(cumul),
+                "cumul_dec": engins_lib.dec_val(cumul, mode),
+                "target_dec": round(target_cumule / 60, 2),
+                "ecart_dec": round(ecart / 60, 2),
+                "ecart_jours": round(ecart / target_jour, 1) if target_jour else 0,
+                "pct": round(cumul / target_cumule * 100, 1)
+                if target_cumule else 0,
+                "cumul_prec_dec": engins_lib.dec_val(cumul_prec, mode),
+                "ecart_vs_prec_dec": round((cumul - cumul_prec) / 60, 2),
+            })
+        cumul_parc = sum(r["cumul_dec"] for r in rows)
+        target_parc = round(target_cumule / 60, 2) * len(rows)
+        return Response({
+            "ym": ym, "mois_precedent": pym, "nb_jours": nb_jours,
+            "jusqu_au_jour": j_lim,
+            "target_jour_dec": round(target_jour / 60, 2),
+            "target_cumule_dec": round(target_cumule / 60, 2),
+            "target_cumule_prec_dec": round(target_cumule_prec / 60, 2),
+            "rows": rows,
+            "parc": {"cumul_dec": round(cumul_parc, 2),
+                     "target_dec": round(target_parc, 2),
+                     "ecart_dec": round(cumul_parc - target_parc, 2),
+                     "ecart_jours": round((cumul_parc - target_parc)
+                                          / (target_jour / 60), 1)
+                     if target_jour else 0}})
+
+
+    @action(detail=False, methods=['get'])
+    def disponibilite(self, request):
+        'Grille mensuelle : sollicitation (1 = deux postes, ½ = un poste,\n    NS = disponible non presté) et indisponibilités (P panne, E entretien)\n    déduites des interventions de maintenance immobilisantes.'
+        sid = _societe_param(request)
+        _acces(request, sid)
+        ym = _valider_ym(request.query_params.get("ym"))
+        if not ym:
+            return refus({"detail": "ym requis (format YYYY-MM)."}, status=422)
+        jours = engins_lib.jours_du_mois(ym)
+        aujourd_hui = date.today().isoformat()
+        grille = {str(k): v for k, v in engins_lib.grille_mois(sid, ym).items()}
+        engins = list(Engin.objects.filter(societe_id=sid,
+                                           actif=True).order_by("nom"))
+        inters = list(InterventionCamion.objects.filter(
+            societe_id=sid, engin_id__in=[e.id for e in engins],
+            immobilise=True))
+
+        def indispo(engin_id, date_iso):
+            for i in inters:
+                if str(i.engin_id) != str(engin_id):
+                    continue
+                debut = i.date_signalement.isoformat()
+                if i.date_fin:
+                    fin = i.date_fin.isoformat()
+                elif i.statut == "terminee":
+                    fin = debut
+                else:
+                    fin = aujourd_hui
+                if debut <= date_iso <= fin:
+                    return "e" if "entretien" in (i.type or "").lower() \
+                        or "prevent" in (i.type or "").lower() else "p"
+            return None
+
+        rows = []
+        for e in engins:
+            par_jour = grille.get(str(e.id), {})
+            cells = []
+            stats = {"dispo": 0, "panne": 0, "entretien": 0,
+                     "s": 0, "demi": 0, "ns": 0, "minutes": 0, "sol": 0.0}
+            ecoules = 0
+            for date_iso in jours:
+                d = par_jour.get(date_iso, {"jour": 0, "nuit": 0})
+                minutes = d["jour"] + d["nuit"]
+                stats["minutes"] += minutes
+                code = indispo(e.id, date_iso)
+                if code is None:
+                    if d["jour"] and d["nuit"]:
+                        code, val = "1", 1.0
+                    elif d["jour"] or d["nuit"]:
+                        code, val = "05", 0.5
+                    else:
+                        code, val = "ns", 0.0
+                    if date_iso <= aujourd_hui:
+                        stats["dispo"] += 1
+                        stats["sol"] += val
+                        stats["s" if code == "1" else
+                              "demi" if code == "05" else "ns"] += 1
+                else:
+                    if date_iso <= aujourd_hui:
+                        stats["panne" if code == "p" else "entretien"] += 1
+                if date_iso <= aujourd_hui:
+                    ecoules += 1
+                cells.append(code)
+            rows.append({
+                "engin_id": str(e.id), "engin": e.nom, "cells": cells,
+                "dispo": stats["dispo"], "panne": stats["panne"],
+                "entretien": stats["entretien"], "s": stats["s"],
+                "demi": stats["demi"], "ns": stats["ns"],
+                "heures_hm": engins_lib.fmt_hm(stats["minutes"]),
+                "taux_dispo": round(stats["dispo"] / ecoules * 100)
+                if ecoules else 0,
+                "taux_sollicitation": round(stats["sol"] / stats["dispo"] * 100)
+                if stats["dispo"] else 0})
+        return Response({"ym": ym, "jours": jours, "rows": rows})
+
+
+    @action(detail=False, methods=['get'])
+    def evolution(self, request):
+        'Série mensuelle (12 derniers mois) : heures retenues, heures supp,\n    statut de réconciliation et facture du mois.'
+        sid = _societe_param(request)
+        _acces(request, sid)
+        try:
+            n = max(1, min(24, int(request.query_params.get("n") or 12)))
+        except ValueError:
+            n = 12
+        annee, mois = date.today().year, date.today().month
+        serie = []
+        for _ in range(n):
+            ym = f"{annee}-{mois:02d}"
+            synthese = engins_lib.synthese_mois(sid, ym)
+            mode = synthese["reglages"]["arrondi"]
+            total = sum(r["min_total"] for r in synthese["rows"])
+            supp = sum(r["supp_min"] for r in synthese["rows"])
+            rec = synthese["reconciliation"]
+            fac = _facture_du_mois(sid, ym)
+            serie.append({
+                "ym": ym,
+                "total_dec": engins_lib.dec_val(total, mode),
+                "supp_dec": engins_lib.dec_val(supp, mode),
+                "reconciliation": rec.statut if rec else None,
+                "facture": {"numero": fac.numero,
+                            "total_ttc": float(fac.total_ttc)} if fac else None})
+            mois -= 1
+            if mois == 0:
+                annee, mois = annee - 1, 12
+        serie.reverse()
+        return Response({"serie": serie})
+
+
 # Anciens points d’entrée conservés pour les intégrations existantes.
 config_engins = ExploitationEnginViewSet.as_view({'get': 'get_config', 'post': 'post_config'}, http_method_names=['get', 'post', 'options'], detail=False, basename='exploitation_engin')
 engins = EnginViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='engin')
@@ -533,3 +1140,11 @@ prestations = PrestationViewSet.as_view({'get': 'list', 'post': 'create'}, http_
 maj_prestation = PrestationViewSet.as_view({'patch': 'partial_update', 'delete': 'destroy'}, http_method_names=['patch', 'delete', 'options'], detail=True, basename='prestation')
 rpe = ExploitationEnginViewSet.as_view({'get': 'rpe'}, http_method_names=['get', 'options'], detail=False, basename='exploitation_engin')
 facturer = ExploitationEnginViewSet.as_view({'post': 'facturer'}, http_method_names=['post', 'options'], detail=False, basename='exploitation_engin')
+reconciliation = ReconciliationEnginViewSet.as_view({'get': 'get_reconciliation', 'post': 'post_reconciliation'}, http_method_names=['get', 'post', 'options'], detail=False, basename='reconciliation_engin')
+valider_reconciliation = ReconciliationEnginViewSet.as_view({'post': 'valider'}, http_method_names=['post', 'options'], detail=False, basename='reconciliation_engin')
+rouvrir_reconciliation = ReconciliationEnginViewSet.as_view({'post': 'rouvrir'}, http_method_names=['post', 'options'], detail=False, basename='reconciliation_engin')
+harmonisations = ReconciliationEnginViewSet.as_view({'get': 'get_harmonisations', 'post': 'post_harmonisations'}, http_method_names=['get', 'post', 'options'], detail=False, basename='reconciliation_engin')
+decider_harmonisation = ReconciliationEnginViewSet.as_view({'post': 'decider'}, http_method_names=['post', 'options'], detail=True, basename='reconciliation_engin')
+rapport_technique = ReconciliationEnginViewSet.as_view({'get': 'rapport_technique'}, http_method_names=['get', 'options'], detail=False, basename='reconciliation_engin')
+disponibilite = ReconciliationEnginViewSet.as_view({'get': 'disponibilite'}, http_method_names=['get', 'options'], detail=False, basename='reconciliation_engin')
+evolution = ReconciliationEnginViewSet.as_view({'get': 'evolution'}, http_method_names=['get', 'options'], detail=False, basename='reconciliation_engin')

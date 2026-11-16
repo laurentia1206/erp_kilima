@@ -64,3 +64,56 @@ class ArretPrestationEngin(models.Model):
         managed = True
         db_table = "arret_prestation_engin"
 
+
+class ReconciliationEngins(models.Model):
+    """Réconciliation mensuelle des prestations avec le planning du locataire.
+
+    Une fiche par société et par mois. `donnees` garde, par engin et par
+    jour, les minutes du client et les minutes retenues après la séance
+    d'harmonisation : {engin_id: {"YYYY-MM-DD": {"client_jour", "client_nuit",
+    "retenu_jour", "retenu_nuit", "note"}}}. Une fois le statut « validee »
+    posé par le responsable, le mois est verrouillé : plus aucune fiche de
+    prestation ne peut être créée, modifiée ou supprimée sans réouverture
+    par la direction (motif tracé)."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    societe_id = models.UUIDField()
+    ym = models.CharField(max_length=7)
+    statut = models.CharField(max_length=16, default="en_cours")
+    donnees = models.JSONField(default=dict)
+    revision = models.IntegerField(default=0)
+    valide_par = models.UUIDField(null=True, blank=True)
+    valide_at = models.DateTimeField(null=True, blank=True)
+    reouverte_par = models.UUIDField(null=True, blank=True)
+    reouverte_at = models.DateTimeField(null=True, blank=True)
+    motif_reouverture = models.CharField(max_length=255, null=True, blank=True)
+    created_by = models.UUIDField(null=True, blank=True)
+    created_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        managed = True
+        db_table = "reconciliation_engins"
+
+
+class HarmonisationEngin(models.Model):
+    """Arrangement d'heures entre deux engins d'un même mois (ex. céder des
+    heures d'une chargeuse à une autre), proposé par le teneur des données
+    puis approuvé ou rejeté par la hiérarchie avant facturation."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    societe_id = models.UUIDField()
+    ym = models.CharField(max_length=7)
+    engin_source_id = models.UUIDField()
+    engin_cible_id = models.UUIDField()
+    poste = models.CharField(max_length=8, default="jour")
+    minutes = models.IntegerField()
+    motif = models.CharField(max_length=255)
+    statut = models.CharField(max_length=16, default="proposee")
+    propose_par = models.UUIDField(null=True, blank=True)
+    propose_at = models.DateTimeField(null=True, blank=True)
+    decide_par = models.UUIDField(null=True, blank=True)
+    decide_at = models.DateTimeField(null=True, blank=True)
+    commentaire_decision = models.CharField(max_length=255, null=True, blank=True)
+
+    class Meta:
+        managed = True
+        db_table = "harmonisation_engin"
+

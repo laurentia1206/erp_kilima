@@ -6,6 +6,8 @@ import { ModuleConfiguration } from './module-configuration';
 import { TransportContracts } from './transport-contracts';
 import { FleetDocuments } from './fleet-documents';
 import { EngineReport } from './engine-report';
+import { EngineReconciliation } from './engine-reconciliation';
+import { EngineAnalytics } from './engine-analytics';
 import { Fleet } from './fleet';
 import { EngineHours } from './engine-hours';
 import { MaintenancePark } from './maintenance-park';
@@ -55,7 +57,7 @@ import { FinancialCockpit, FinancialStatements } from './financial-statements';
 import { Matching, BankReconciliation } from './accounting-matching';
 import type { ScreenProps } from './shared';
 
-export const BUSINESS_VIEWS = ['pilotage', 'audit', 'stock', 'taux', 'articles', 'hotel-chambres', 'depots', 'inventaires', 'hotel-reception', 'cuisine', 'balance', 'grand-livre', 'saisie-od', 'plan-comptable', 'lettrage', 'rapprochement', 'cockpit', 'etats', 'analytique', 'tva', 'compta', 'rapports-commercial', 'dashboard', 'config-hotel', 'config-engins', 'config-transport', 'config-maintenance', 'contrats-transport', 'flotte-documents', 'engins-rpe', 'flotte', 'engins-parc', 'engins-heures', 'maintenance-parc', 'maintenance-interventions', 'carburant', 'tarifs-pos', 'transferts', 'caisse-exec', 'intersociete', 'nouvelle-req', 'requisitions', 'approbation', 'ordres', 'avances', 'caisse', 'courses', 'config', 'administration', 'systeme', 'rh', 'rh-simulateur', 'rh-decomptes', 'rh-finances', 'rh-paiements', 'rh-mensuel', 'achats', 'ventes', 'commandes', 'receptions', 'devis', 'fournisseurs', 'clients', 'pos'];
+export const BUSINESS_VIEWS = ['pilotage', 'audit', 'stock', 'taux', 'articles', 'hotel-chambres', 'depots', 'inventaires', 'hotel-reception', 'cuisine', 'balance', 'grand-livre', 'saisie-od', 'plan-comptable', 'lettrage', 'rapprochement', 'cockpit', 'etats', 'analytique', 'tva', 'compta', 'rapports-commercial', 'dashboard', 'config-hotel', 'config-engins', 'config-transport', 'config-maintenance', 'contrats-transport', 'flotte-documents', 'engins-rpe', 'engins-reconciliation', 'engins-rapports', 'flotte', 'engins-parc', 'engins-heures', 'maintenance-parc', 'maintenance-interventions', 'carburant', 'tarifs-pos', 'transferts', 'caisse-exec', 'intersociete', 'nouvelle-req', 'requisitions', 'approbation', 'ordres', 'avances', 'caisse', 'courses', 'config', 'administration', 'systeme', 'rh', 'rh-simulateur', 'rh-decomptes', 'rh-finances', 'rh-paiements', 'rh-mensuel', 'achats', 'ventes', 'commandes', 'receptions', 'devis', 'fournisseurs', 'clients', 'pos'];
 export function BusinessScreen(props: ScreenProps) {
   const target = (props.state as typeof props.state & { taskTarget?: { view: string; documentId: string } | null }).taskTarget;
   return <ScreenPresentation state={props.state}><ModuleGuide {...props} /><ModulePendingBanner {...props} /><CurrentScreen {...props} />{target && target.view === props.state.view && <RequisitionDetail {...props} id={target.documentId} onClose={() => props.bridge.clearTask()} />}</ScreenPresentation>;
@@ -102,6 +104,8 @@ function CurrentScreen(props: ScreenProps) {
     case 'contrats-transport': return <TransportContracts {...props} />;
     case 'flotte-documents': return <FleetDocuments {...props} />;
     case 'engins-rpe': return <EngineReport {...props} />;
+    case 'engins-reconciliation': return <EngineReconciliation {...props} />;
+    case 'engins-rapports': return <EngineAnalytics {...props} />;
     case 'flotte': case 'engins-parc': return <Fleet key={props.state.view} {...props} />;
     case 'engins-heures': return <EngineHours {...props} />;
     case 'maintenance-parc': return <MaintenancePark {...props} />;

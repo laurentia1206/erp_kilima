@@ -4343,6 +4343,200 @@
     "throttles": []
   },
   {
+    "route": "api/engins/reconciliation",
+    "methods": [
+      "get",
+      "options",
+      "post"
+    ],
+    "authentication": [
+      "core.auth.JWTAuthentication"
+    ],
+    "permissions": [
+      "rest_framework.permissions.IsAuthenticated",
+      "core.permissions.PermissionsModules"
+    ],
+    "parsers": [
+      "rest_framework.parsers.JSONParser",
+      "rest_framework.parsers.FormParser",
+      "rest_framework.parsers.MultiPartParser"
+    ],
+    "renderers": [
+      "rest_framework.renderers.JSONRenderer",
+      "rest_framework.renderers.BrowsableAPIRenderer"
+    ],
+    "throttles": []
+  },
+  {
+    "route": "api/engins/reconciliation/valider",
+    "methods": [
+      "options",
+      "post"
+    ],
+    "authentication": [
+      "core.auth.JWTAuthentication"
+    ],
+    "permissions": [
+      "rest_framework.permissions.IsAuthenticated",
+      "core.permissions.PermissionsModules"
+    ],
+    "parsers": [
+      "rest_framework.parsers.JSONParser",
+      "rest_framework.parsers.FormParser",
+      "rest_framework.parsers.MultiPartParser"
+    ],
+    "renderers": [
+      "rest_framework.renderers.JSONRenderer",
+      "rest_framework.renderers.BrowsableAPIRenderer"
+    ],
+    "throttles": []
+  },
+  {
+    "route": "api/engins/reconciliation/rouvrir",
+    "methods": [
+      "options",
+      "post"
+    ],
+    "authentication": [
+      "core.auth.JWTAuthentication"
+    ],
+    "permissions": [
+      "rest_framework.permissions.IsAuthenticated",
+      "core.permissions.PermissionsModules"
+    ],
+    "parsers": [
+      "rest_framework.parsers.JSONParser",
+      "rest_framework.parsers.FormParser",
+      "rest_framework.parsers.MultiPartParser"
+    ],
+    "renderers": [
+      "rest_framework.renderers.JSONRenderer",
+      "rest_framework.renderers.BrowsableAPIRenderer"
+    ],
+    "throttles": []
+  },
+  {
+    "route": "api/engins/harmonisations",
+    "methods": [
+      "get",
+      "options",
+      "post"
+    ],
+    "authentication": [
+      "core.auth.JWTAuthentication"
+    ],
+    "permissions": [
+      "rest_framework.permissions.IsAuthenticated",
+      "core.permissions.PermissionsModules"
+    ],
+    "parsers": [
+      "rest_framework.parsers.JSONParser",
+      "rest_framework.parsers.FormParser",
+      "rest_framework.parsers.MultiPartParser"
+    ],
+    "renderers": [
+      "rest_framework.renderers.JSONRenderer",
+      "rest_framework.renderers.BrowsableAPIRenderer"
+    ],
+    "throttles": []
+  },
+  {
+    "route": "api/engins/harmonisations/<uuid:harmonisation_id>/decider",
+    "methods": [
+      "options",
+      "post"
+    ],
+    "authentication": [
+      "core.auth.JWTAuthentication"
+    ],
+    "permissions": [
+      "rest_framework.permissions.IsAuthenticated",
+      "core.permissions.PermissionsModules"
+    ],
+    "parsers": [
+      "rest_framework.parsers.JSONParser",
+      "rest_framework.parsers.FormParser",
+      "rest_framework.parsers.MultiPartParser"
+    ],
+    "renderers": [
+      "rest_framework.renderers.JSONRenderer",
+      "rest_framework.renderers.BrowsableAPIRenderer"
+    ],
+    "throttles": []
+  },
+  {
+    "route": "api/engins/rapport-technique",
+    "methods": [
+      "get",
+      "options"
+    ],
+    "authentication": [
+      "core.auth.JWTAuthentication"
+    ],
+    "permissions": [
+      "rest_framework.permissions.IsAuthenticated",
+      "core.permissions.PermissionsModules"
+    ],
+    "parsers": [
+      "rest_framework.parsers.JSONParser",
+      "rest_framework.parsers.FormParser",
+      "rest_framework.parsers.MultiPartParser"
+    ],
+    "renderers": [
+      "rest_framework.renderers.JSONRenderer",
+      "rest_framework.renderers.BrowsableAPIRenderer"
+    ],
+    "throttles": []
+  },
+  {
+    "route": "api/engins/disponibilite",
+    "methods": [
+      "get",
+      "options"
+    ],
+    "authentication": [
+      "core.auth.JWTAuthentication"
+    ],
+    "permissions": [
+      "rest_framework.permissions.IsAuthenticated",
+      "core.permissions.PermissionsModules"
+    ],
+    "parsers": [
+      "rest_framework.parsers.JSONParser",
+      "rest_framework.parsers.FormParser",
+      "rest_framework.parsers.MultiPartParser"
+    ],
+    "renderers": [
+      "rest_framework.renderers.JSONRenderer",
+      "rest_framework.renderers.BrowsableAPIRenderer"
+    ],
+    "throttles": []
+  },
+  {
+    "route": "api/engins/evolution",
+    "methods": [
+      "get",
+      "options"
+    ],
+    "authentication": [
+      "core.auth.JWTAuthentication"
+    ],
+    "permissions": [
+      "rest_framework.permissions.IsAuthenticated",
+      "core.permissions.PermissionsModules"
+    ],
+    "parsers": [
+      "rest_framework.parsers.JSONParser",
+      "rest_framework.parsers.FormParser",
+      "rest_framework.parsers.MultiPartParser"
+    ],
+    "renderers": [
+      "rest_framework.renderers.JSONRenderer",
+      "rest_framework.renderers.BrowsableAPIRenderer"
+    ],
+    "throttles": []
+  },
+  {
     "route": "api/intersociete/commandes/<uuid:commande_id>/receptionner",
     "methods": [
       "options",

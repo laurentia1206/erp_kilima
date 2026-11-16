@@ -85,7 +85,17 @@ def pdf(spec,soc):
     if 'Edition' not in pdfmetrics.getRegisteredFontNames():
         pdfmetrics.registerFont(TTFont('Edition',str(fonts/'Vera.ttf')))
         pdfmetrics.registerFont(TTFont('EditionBold',str(fonts/'VeraBd.ttf')))
-    def clean(v): return escape(str(v).replace('\u202f',' ').replace('\u00a0',' ')).replace('\n','<br/>')
+    if 'STSong-Light' not in pdfmetrics.getRegisteredFontNames():
+        # Police CJK incluse dans reportlab (CID Adobe) : rend le chinois des
+        # documents bilingues (RPE fran\u00e7ais/\u4e2d\u6587) sans fichier TTF embarqu\u00e9.
+        from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+        pdfmetrics.registerFont(UnicodeCIDFont('STSong-Light'))
+    _cjk=re.compile(r'([\u3000-\u303f\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef\u00b7]*'
+                    r'[\u4e00-\u9fff]+[\u3000-\u303f\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]*)')
+    def clean(v):
+        s=escape(str(v).replace('\u202f',' ').replace('\u00a0',' ')).replace('\n','<br/>')
+        # Les passages chinois basculent sur la police CJK, le reste garde Vera.
+        return _cjk.sub(r'<font name="STSong-Light">\1</font>',s)
     size=landscape(A4) if spec['paysage'] else A4
     output=io.BytesIO();width=size[0]-80
     normal=ParagraphStyle('Normal',fontName='Edition',fontSize=9,leading=13,textColor=couleur(NAVY),spaceAfter=7,splitLongWords=True)

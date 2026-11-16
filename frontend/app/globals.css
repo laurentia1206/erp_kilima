@@ -102,6 +102,28 @@
 /* Bannière des opérations en attente du module courant. */
 .module-pending { border-left: 4px solid #c9962f; }
 .module-pending a { font-weight: 600; }
+
+/* Location d'engins : réconciliation mensuelle et disponibilité
+   (présentation inspirée de l'application desktop Horizon Prestations). */
+.recon-grid table { min-width: 940px; }
+.recon-grid td, .recon-grid th { padding: 7px 8px; }
+.recon-grid .right { text-align: right; white-space: nowrap; }
+.recon-input { width: 76px; padding: 6px 8px; text-align: right; }
+.recon-note { min-width: 140px; padding: 6px 8px; }
+.recon-dec { display: block; font-size: 11px; color: var(--text2, #61717c); }
+.recon-ecart { color: #b05c13; font-weight: 700; }
+.recon-egal { color: #1a7a52; }
+.rpe-definitif { color: #1a7a52; }
+.rpe-provisoire { color: #b05c13; }
+.dispo-grid td, .dispo-grid th { padding: 6px 4px; text-align: center; }
+.dispo-grid td:first-child, .dispo-grid th:first-child { text-align: left; min-width: 130px; }
+.dcell { font-size: 12px; font-weight: 700; border-radius: 6px; }
+.dispo-legende .dcell { display: inline-block; min-width: 26px; padding: 2px 4px; text-align: center; margin-right: 2px; }
+.d-1 { background: #d9efe4; color: #15694a; }
+.d-05 { background: #eaf3d2; color: #5c7016; }
+.d-ns { background: #eef2f4; color: #61717c; }
+.d-p { background: #fbe0da; color: #a33a24; }
+.d-e { background: #fdeec9; color: #8a6413; }
 .hotel-react-planning th:first-child { position: sticky; left: 0; z-index: 1; min-width: 120px; }
 .hotel-react-planning td { min-width: 80px; padding: 6px 2px; }
 .hotel-react-planning .hotel-today { background: #edf7f4; }
