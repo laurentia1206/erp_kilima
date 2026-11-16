@@ -141,17 +141,50 @@ def pdf(spec,soc):
     for b in spec['blocs']:
         if b['type']=='table':
             cols=b['colonnes'];n=len(cols)
-            # Weight descriptive columns; all content wraps and headers repeat.
-            weights=[2.4 if re.search(r'désignation|description|rubrique|détail|agent|libellé|nom|engin|machine|équipement|equipement',c,re.I) else 1 for c in cols]
             groupes=b.get('entetes_groupes')
-            if groupes:
-                # La 1re colonne d'un groupe « identité » (span 1) reste large.
-                j=0
-                for titre,span in groupes:
-                    if span==1 and re.search(r'engin|machine|équipement|equipement|désignation|nom',titre,re.I):
-                        weights[j]=2.4
-                    j+=span
-            widths=[width*x/sum(weights) for x in weights]
+            def affiche(v):
+                if isinstance(v,(int,float)):
+                    precision=max(2,min(8,-Decimal(str(v)).as_tuple().exponent))
+                    return format(v,f',.{precision}f').replace(',',' ').replace('.',',')
+                return str(v)
+            # ── Largeurs calibrées sur le CONTENU réel ──────────────────
+            # Jamais couper un nombre ni un mot d'en-tête ; seules les
+            # colonnes de texte long peuvent replier (plafond raisonnable).
+            def _mesure(s,font,size):
+                s=str(s)
+                cjk=len(_cjk.findall(s) and ''.join(_cjk.findall(s)) or '')
+                return pdfmetrics.stringWidth(_cjk.sub('',s),font,size)+cjk*size
+            est_nombre=re.compile(r'^[-+\d\s.,%]*[\d%][-+\d\s.,%]*(?: USD| CDF| \$|h| h| j)?$')
+            pad=11 if n>8 else 15
+            tete_need=[0.0]*n;num_need=[0.0]*n;txt_need=[0.0]*n
+            for i,c in enumerate(cols):
+                for mot in re.split(r'[\s/]+',str(c)):
+                    tete_need[i]=max(tete_need[i],_mesure(mot,'EditionBold',8))
+            for r in b['lignes']:
+                for i,v in enumerate(r):
+                    s=affiche(v).strip()
+                    if not s: continue
+                    wv=_mesure(s,'EditionBold',8)
+                    if est_nombre.match(s):
+                        num_need[i]=max(num_need[i],wv)
+                    else:
+                        txt_need[i]=max(txt_need[i],wv)
+            need=[];mini=[]
+            for i in range(n):
+                need.append(max(tete_need[i],num_need[i],min(txt_need[i],170),24)+pad)
+                mini.append(max(tete_need[i],num_need[i],24)+pad)
+            total=sum(need)
+            if total<=width:
+                widths=[x+(width-total)*x/total for x in need]
+            else:
+                reducible=[need[i]-mini[i] for i in range(n)]
+                surplus=total-width;rtot=sum(reducible)
+                if rtot>=surplus and rtot>0:
+                    widths=[need[i]-surplus*reducible[i]/rtot for i in range(n)]
+                elif sum(mini)<=width:
+                    widths=[m+(width-sum(mini))*m/sum(mini) for m in mini]
+                else:
+                    widths=[m*width/sum(mini) for m in mini]
             thc=ParagraphStyle('EnteteGroupe',parent=th,alignment=TA_CENTER)
             rows=[]
             if groupes:
@@ -161,19 +194,15 @@ def pdf(spec,soc):
                     ligne.extend(['']*(span-1))
                 rows.append(ligne)
             rows.append([p(x,th) for x in cols])
-            def affiche(v):
-                if isinstance(v,(int,float)):
-                    precision=max(2,min(8,-Decimal(str(v)).as_tuple().exponent))
-                    return format(v,f',.{precision}f').replace(',',' ').replace('.',',')
-                return str(v)
             for r in b['lignes']:
                 fort=bool(r and re.match(r'^(total|net à payer|résultat|solde)',str(r[0]),re.I))
                 rows.append([p(affiche(v),(right_bold if fort else right) if re.fullmatch(r'[-+\d\s.,%]+(?: USD| CDF| \$)?',str(v)) else (cell_bold if fort else cell)) for v in r])
             entetes=2 if groupes else 1
             t=Table(rows,colWidths=widths,repeatRows=entetes,hAlign='LEFT',splitByRow=1,splitInRow=1)
+            demi=pad/2
             style=[('BACKGROUND',(0,0),(-1,entetes-1),couleur(TEAL)),
                 ('ROWBACKGROUNDS',(0,entetes),(-1,-1),[colors.white,couleur('F3F7F7')]),
-                ('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),8),('RIGHTPADDING',(0,0),(-1,-1),8),
+                ('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),demi),('RIGHTPADDING',(0,0),(-1,-1),demi),
                 ('TOPPADDING',(0,0),(-1,-1),8),('BOTTOMPADDING',(0,0),(-1,-1),8),
                 ('LINEBELOW',(0,entetes-1),(-1,entetes-1),.7,couleur(TEAL)),('LINEBELOW',(0,entetes),(-1,-1),.25,couleur('DCE5E5'))]
             if groupes:
