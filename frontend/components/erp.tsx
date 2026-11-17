@@ -44,6 +44,10 @@ export function ERP() {
     return () => { alive = false; window.removeEventListener('kilima:state', update); };
   }, []);
   useEffect(() => {
+    // PWA : worker minimal (aucun cache) pour l'installation sur téléphone.
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }, []);
+  useEffect(() => {
     const query = window.matchMedia('(max-width:760px)');
     const resize = () => { setSmallScreen(query.matches); setMobile(false); };
     const connection = () => setOffline(!navigator.onLine);

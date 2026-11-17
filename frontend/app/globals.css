@@ -130,6 +130,27 @@
 .park-card progress { width: 100%; }
 @media (max-width: 480px) { .park-grid, .room-grid { grid-template-columns: 1fr; } }
 
+/* ── Mobile : les listes gérées deviennent des cartes empilées ─────────
+   Chaque ligne du tableau se replie en carte « Libellé : valeur », bien
+   plus lisible qu'un tableau à faire défiler sur un téléphone. */
+@media (max-width: 600px) {
+  .business-table table.managed-list { min-width: 0; }
+  .managed-list, .managed-list tbody, .managed-list tr, .managed-list td { display: block; width: 100%; }
+  .managed-list thead { display: none; }
+  .managed-list tr { border: 1px solid #dce5e7; border-radius: 10px; padding: 10px 12px; margin: 0 0 10px; background: white; }
+  .managed-list td { border: 0; padding: 3px 0; text-align: left; display: flex; gap: 10px; align-items: baseline; }
+  .managed-list td.right { text-align: left; }
+  .managed-list td::before { content: attr(data-label); flex: 0 0 42%; max-width: 42%; font-size: 10.5px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: #61717c; }
+  .managed-list td.cell-empty { display: none; }
+  .managed-list td:first-child { font-weight: 700; }
+  .managed-list td.native-list-actions { flex-direction: column; align-items: stretch; border-top: 1px solid #eef2f4; margin-top: 6px; padding-top: 8px; }
+  .managed-list td.native-list-actions::before { display: none; }
+  .managed-list td.native-list-actions > div { display: flex; flex-wrap: wrap; gap: 8px; }
+  .managed-list .audit-empty { display: block; }
+  .list-tools-controls { flex-wrap: wrap; }
+  .list-pagination { flex-wrap: wrap; gap: 8px; }
+}
+
 /* Housekeeping : bord et pastille d'état colorés, compteurs cliquables. */
 .room-card { border-left: 5px solid #8aa3ad; }
 .room-card.etat-libre { border-left-color: #2f9e6e; }
