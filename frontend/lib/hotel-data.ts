@@ -1,6 +1,6 @@
 export interface HotelRoom { id: string; numero: string; categorie: string; tarif_nuit_usd: number; capacite: number; etat: string; actif: boolean; sejour?: { id: string; client: string } }
 export interface HotelClient { id: string; code: string; nom: string; actif: boolean; societe_id: string | null }
-export interface Stay { id: string; numero: string; chambre_id: string; chambre: string; tiers_id: string | null; client_nom: string; client_telephone: string | null; nb_personnes: number; date_arrivee: string; date_depart_prevue: string; date_depart: string | null; tarif_nuit_usd: number; statut: string; source: string; note: string | null; facture: string | null; facture_id: string | null }
+export interface Stay { id: string; numero: string; chambre_id: string; chambre: string; tiers_id: string | null; client_nom: string; client_telephone: string | null; nb_personnes: number; piece_type: string | null; piece_numero: string | null; date_arrivee: string; date_depart_prevue: string; date_depart: string | null; tarif_nuit_usd: number; statut: string; source: string; note: string | null; facture: string | null; facture_id: string | null }
 export interface Extra { id: string; date: string; designation: string; qte: number; prix_unitaire: number; montant_usd: number; origine: string }
 export interface Ticket { id: string; date: string; designation: string; montant_usd: number; origine: string; facture_pos_id: string; solde_du_usd: number }
 export interface Folio { sejour: Stay; nuits: number; montant_nuitees: number; extras: Extra[]; tickets_pos: Ticket[]; total_extras: number; total_tickets_pos: number; total_a_facturer: number; total_note: number; solde_du_usd: number; facture_sejour: { id: string; numero: string; total_ht: number; total_tva: number; total_ttc: number; paye_usd: number; solde_du_usd: number } | null }
@@ -9,6 +9,7 @@ export interface HotelReport { du: string; au: string; taux_occupation_pct: numb
 export const stayStatuses: Record<string, string> = { reservee: 'Réservé', arrivee: 'En séjour', terminee: 'Terminé', annulee: 'Annulé', no_show: 'Non présenté' };
 export const roomStatuses: Record<string, string> = { libre: 'Libre', occupee: 'Occupée', sale: 'À nettoyer', nettoyage: 'En nettoyage', maintenance: 'Hors service' };
 export const staySources: Record<string, string> = { directe: 'Directe', telephone: 'Téléphone', entreprise: 'Entreprise', en_ligne: 'En ligne' };
+export const pieceTypes: Record<string, string> = { passeport: 'Passeport', carte_electeur: 'Carte d’électeur', carte_identite: 'Carte d’identité', permis_conduire: 'Permis de conduire', autre: 'Autre pièce officielle' };
 export const clientLabel = (c: HotelClient) => `${c.code} — ${c.nom} · ${c.societe_id === null ? 'Fiche partagée' : 'Société active'}${c.actif ? '' : ' · Inactif'}`;
 export function shiftDay(day: string, days: number) { const date = new Date(day + 'T12:00:00Z'); date.setUTCDate(date.getUTCDate() + days); return date.toISOString().slice(0, 10); }
 export function validateStay(arrival: string, departure: string, people: string, rate: string) {

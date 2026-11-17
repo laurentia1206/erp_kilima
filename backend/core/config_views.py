@@ -618,10 +618,13 @@ def _autoriser_piece(user, document_type, document_id):
     """Les justificatifs héritent du périmètre société de leur document."""
     from .auth import assert_acces_societe
     from .models import DocumentFlotte, Reception, OrdreDepense, Justification
+    from apps.hotel.models import Sejour
+    from apps.maintenance.models import InterventionCamion
     modeles = {"requisition": Requisition, "ecriture": Ecriture, "commande": Commande,
                "reception": Reception, "document_flotte": DocumentFlotte,
                "facture": Facture, "devis": Devis, "course": Course,
-               "avance": Avance, "ordre_depense": OrdreDepense}
+               "avance": Avance, "ordre_depense": OrdreDepense,
+               "sejour": Sejour, "intervention": InterventionCamion}
     try:
         identifiant = uuidlib.UUID(str(document_id))
     except (ValueError, TypeError, AttributeError):

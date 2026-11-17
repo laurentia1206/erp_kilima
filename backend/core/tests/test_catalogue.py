@@ -60,6 +60,7 @@ class CatalogueTests(TestCase):
         t=self.post('hotel/clients',{'code':'H01','nom':'Client hôtel'})
         ch=Chambre.objects.create(societe_id=self.a.id,numero='1',tarif_nuit_usd=100)
         self.post('hotel/sejours',{'chambre_id':str(ch.id),'tiers_id':t['id'],'client_nom':'Nom saisi différent',
+            'piece_type':'passeport','piece_numero':'OP111',
             'date_arrivee':date.today().isoformat(),'date_depart_prevue':(date.today()+timedelta(days=1)).isoformat(),'arrivee_immediate':True})
         self.assertEqual(Tiers.objects.count(),1)
         s=Sejour.objects.get()
@@ -85,6 +86,7 @@ class CatalogueTests(TestCase):
         t=Tiers.objects.create(societe_id=self.a.id,code='H1',nom='Émile  Kwete',type='client')
         ch=Chambre.objects.create(societe_id=self.a.id,numero='1',tarif_nuit_usd=100)
         self.post('hotel/sejours',{'chambre_id':str(ch.id),'client_nom':'emile kwete',
+            'piece_type':'carte_electeur','piece_numero':'CE222',
             'date_arrivee':date.today().isoformat(),'date_depart_prevue':(date.today()+timedelta(days=1)).isoformat(),'arrivee_immediate':True})
         self.assertEqual(Tiers.objects.count(),1)
         self.assertEqual(Sejour.objects.get().tiers_id,t.id)
@@ -99,6 +101,7 @@ class CatalogueTests(TestCase):
         self.post('commercial/tiers',{'type':'client','code':'AUTRE','nom':'Client partagé'},409)
         ch=Chambre.objects.create(societe_id=self.a.id,numero='1',tarif_nuit_usd=100)
         self.post('hotel/sejours',{'chambre_id':str(ch.id),'tiers_id':str(shared.id),'client_nom':shared.nom,
+            'piece_type':'passeport','piece_numero':'OP333',
             'date_arrivee':date.today().isoformat(),'date_depart_prevue':(date.today()+timedelta(days=1)).isoformat(),'arrivee_immediate':True})
         self.assertEqual(Tiers.objects.count(),2)
         self.assertEqual(Sejour.objects.get().tiers_id,shared.id)

@@ -36,6 +36,8 @@ class Sejour(models.Model):
     client_nom = models.CharField(max_length=128)
     client_telephone = models.CharField(max_length=32, null=True, blank=True)
     nb_personnes = models.IntegerField(default=1)
+    piece_type = models.CharField(max_length=32, null=True, blank=True)
+    piece_numero = models.CharField(max_length=64, null=True, blank=True)
     date_arrivee = models.DateField()
     date_depart_prevue = models.DateField()
     date_depart = models.DateField(null=True, blank=True)

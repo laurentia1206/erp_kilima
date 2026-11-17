@@ -39,6 +39,8 @@ ROLES = {"RECEPTIONNISTE", "CAISSIER_CENTRAL", "COMPTABLE", "DFI", "DG"}
 ETATS_CHAMBRE = ("libre", "occupee", "sale", "nettoyage", "maintenance")
 SOURCES = ("directe", "telephone", "entreprise", "en_ligne")
 STATUTS_OCCUPANTS = ("reservee", "arrivee")
+PIECES_IDENTITE = ("passeport", "carte_electeur", "carte_identite",
+                   "permis_conduire", "autre")
 
 
 def _acces(request, societe_id):
@@ -164,6 +166,7 @@ def _sejour_dict(s: Sejour) -> dict:
             "tiers_id": str(s.tiers_id) if s.tiers_id else None,
             "client_nom": s.client_nom, "client_telephone": s.client_telephone,
             "nb_personnes": s.nb_personnes,
+            "piece_type": s.piece_type, "piece_numero": s.piece_numero,
             "date_arrivee": s.date_arrivee.isoformat(),
             "date_depart_prevue": s.date_depart_prevue.isoformat(),
             "date_depart": s.date_depart.isoformat() if s.date_depart else None,
@@ -183,6 +186,27 @@ def _chevauchement(chambre_id, arrivee, depart, exclure_id=None):
     if exclure_id:
         q = q.exclude(id=exclure_id)
     return q.first()
+
+
+def _lire_piece(payload):
+    """(piece_type, piece_numero, erreur) depuis le payload — champs
+    optionnels ici ; leur présence est exigée au check-in."""
+    ptype = (payload.get("piece_type") or "").strip() or None
+    pnum = (payload.get("piece_numero") or "").strip() or None
+    if ptype and ptype not in PIECES_IDENTITE:
+        return None, None, refus(
+            {"detail": f"piece_type : {', '.join(PIECES_IDENTITE)}."}, status=422)
+    if (ptype and not pnum) or (pnum and not ptype):
+        return None, None, refus(
+            {"detail": "Pièce d'identité : indiquez le type ET le numéro."},
+            status=422)
+    return ptype, pnum, None
+
+
+def _piece_jointe_sejour(sejour_id) -> bool:
+    from core.models import PieceJointe
+    return PieceJointe.objects.filter(document_type="sejour",
+                                      document_id=sejour_id).exists()
 
 
 def _lire_dates(payload):
@@ -353,7 +377,14 @@ class SejourViewSet(MetierModelViewSet):
                 return refus({"detail": f"La chambre {chambre.numero} est prise sur "
                                         f"ces dates ({occupe.numero} — "
                                         f"{occupe.client_nom})."}, status=409)
+            ptype, pnum, erreur = _lire_piece(payload)
+            if erreur:
+                return erreur
             walk_in = bool(payload.get("arrivee_immediate"))
+            if walk_in and not (ptype and pnum):
+                return refus({"detail": "Arrivée immédiate : enregistrez la pièce "
+                                        "d'identité du client (type et numéro)."},
+                             status=422)
             if walk_in and arrivee != date.today():
                 return refus({"detail": "Arrivée immédiate : la date d'arrivée doit "
                                         "être aujourd'hui."}, status=422)
@@ -374,6 +405,7 @@ class SejourViewSet(MetierModelViewSet):
                     client_telephone=(payload.get("client_telephone") or "").strip()
                     or None,
                     nb_personnes=payload.get("nb_personnes") or 1,
+                    piece_type=ptype, piece_numero=pnum,
                     date_arrivee=arrivee, date_depart_prevue=depart,
                     tarif_nuit_usd=tarif if tarif is not None
                     else chambre.tarif_nuit_usd,
@@ -412,6 +444,36 @@ class SejourViewSet(MetierModelViewSet):
             return refus({"detail": f"Séjour {s.statut} — non modifiable."}, status=409)
         payload = request.data or {}
         avant = _sejour_dict(s)
+        if "chambre_id" in payload and str(payload["chambre_id"]) != str(s.chambre_id):
+            # Changement de chambre possible tant que le client n'est pas arrivé
+            # (p. ex. à la confirmation de la réservation).
+            if s.statut != "reservee":
+                return refus({"detail": "Client déjà arrivé — la chambre ne se "
+                                        "change plus ici."}, status=409)
+            nouvelle = Chambre.objects.filter(id=payload["chambre_id"]).first()
+            if (not nouvelle or str(nouvelle.societe_id) != str(s.societe_id)
+                    or not nouvelle.actif):
+                return refus({"detail": "Chambre invalide."}, status=400)
+            arrivee_c = date.fromisoformat(payload["date_arrivee"]) \
+                if payload.get("date_arrivee") else s.date_arrivee
+            depart_c = date.fromisoformat(payload["date_depart_prevue"]) \
+                if payload.get("date_depart_prevue") else s.date_depart_prevue
+            occupe = _chevauchement(nouvelle.id, arrivee_c, depart_c,
+                                    exclure_id=s.id)
+            if occupe:
+                return refus({"detail": f"La chambre {nouvelle.numero} est prise "
+                                        f"sur ces dates ({occupe.numero} — "
+                                        f"{occupe.client_nom})."}, status=409)
+            s.chambre_id = nouvelle.id
+            if "tarif_nuit_usd" not in payload:
+                s.tarif_nuit_usd = nouvelle.tarif_nuit_usd
+        if "piece_type" in payload or "piece_numero" in payload:
+            ptype, pnum, erreur = _lire_piece({
+                "piece_type": payload.get("piece_type", s.piece_type),
+                "piece_numero": payload.get("piece_numero", s.piece_numero)})
+            if erreur:
+                return erreur
+            s.piece_type, s.piece_numero = ptype, pnum
         if 'tiers_id' in payload:
             client = tiers_visibles(s.societe_id).filter(id=payload['tiers_id'], type='client', actif=True).first()
             if not client:
@@ -466,6 +528,20 @@ class SejourViewSet(MetierModelViewSet):
         if s.statut != "reservee":
             return refus({"detail": f"Séjour {s.statut} — check-in impossible."},
                          status=409)
+        payload = request.data or {}
+        if payload.get("piece_type") or payload.get("piece_numero"):
+            ptype, pnum, erreur = _lire_piece(payload)
+            if erreur:
+                return erreur
+            s.piece_type, s.piece_numero = ptype, pnum
+        if not (s.piece_type and s.piece_numero):
+            return refus({"detail": "Check-in refusé : enregistrez la pièce "
+                                    "d'identité du client (type et numéro)."},
+                         status=422)
+        if not _piece_jointe_sejour(s.id):
+            return refus({"detail": "Check-in refusé : joignez une copie de la "
+                                    "pièce d'identité au séjour (bouton "
+                                    "Justificatifs)."}, status=422)
         chambre = Chambre.objects.filter(id=s.chambre_id).first()
         if chambre.etat in ("sale", "nettoyage", "maintenance"):
             return refus({"detail": f"Chambre {chambre.numero} : {chambre.etat} — "

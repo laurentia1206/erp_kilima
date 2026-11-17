@@ -134,6 +134,26 @@
 .module-pending { border-left: 4px solid #c9962f; }
 .module-pending a { font-weight: 600; }
 
+/* Accueil : modules en tuiles colorées (inspiration « metro »). */
+.tile-section { margin: 14px 0 20px; }
+.tile-section-title { margin: 0 0 8px; font-size: 13px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: #61717c; }
+.tile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.tile { position: relative; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; gap: 10px; min-height: 108px; padding: 13px 14px; border: 0; border-radius: 6px; color: #fff; text-align: left; cursor: pointer; transition: transform .12s ease, filter .12s ease, box-shadow .12s ease; }
+.tile i { font-size: 26px; line-height: 1; opacity: .95; }
+.tile .tile-label { font-weight: 600; font-size: 13.5px; line-height: 1.25; padding-right: 16px; }
+.tile .tile-arrow { position: absolute; right: 12px; bottom: 10px; font-size: 14px; opacity: .8; }
+.tile:hover, .tile:focus-visible { filter: brightness(1.1); transform: translateY(-2px); box-shadow: 0 8px 18px #15284833; }
+.tile.tile-lg { grid-column: span 2; }
+.tile-c0 { background: #176b61; } /* teal maison */
+.tile-c1 { background: #0f6cbd; } /* bleu */
+.tile-c2 { background: #5c2d91; } /* violet */
+.tile-c3 { background: #107c10; } /* vert */
+.tile-c4 { background: #b7332c; } /* rouge brique */
+.tile-c5 { background: #ca5010; } /* orange */
+.tile-c6 { background: #183342; } /* marine */
+.tile-c7 { background: #9b2d5e; } /* magenta */
+@media (max-width: 480px) { .tile.tile-lg { grid-column: span 1; } .tile { min-height: 96px; } }
+
 /* Location d'engins : réconciliation mensuelle et disponibilité
    (présentation inspirée de l'application desktop Horizon Prestations). */
 .recon-grid table { min-width: 940px; }

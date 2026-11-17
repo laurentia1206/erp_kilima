@@ -19,6 +19,9 @@ from apps.rh.views import ident
 from core.views import _societe_param
 
 TEAL='176B61'; NAVY='183342'; GRAY='61717C'
+# Gabarit « FC » (modèles carburant de la direction) : bandes de section gris
+# foncé à texte blanc, cellules de libellés gris clair, filets fins.
+INK='585858'; LABEL='EDEDED'; FOND='F7F7F7'
 
 
 def texte(v,limite=20000):
@@ -32,6 +35,7 @@ def texte(v,limite=20000):
 def normaliser(p):
     if not isinstance(p,dict): raise ValidationError('Document invalide.')
     titre=texte(p.get('titre','Document'),250);sous=texte(p.get('sous_titre',''),2000)
+    reference=texte(p.get('reference',''),120)
     blocks=p.get('blocs')
     if not isinstance(blocks,list) or not 1<=len(blocks)<=500: raise ValidationError('Document vide ou trop volumineux.')
     out=[];nb=0
@@ -76,7 +80,7 @@ def normaliser(p):
         elif kind in ['texte','titre','total','signatures']:
             out.append({'type':kind,'texte':texte(b.get('texte',''))})
         else: raise ValidationError('Type de bloc non autorisé.')
-    return {'titre':titre,'sous_titre':sous,'blocs':out,'paysage':any(b['type']=='table' and len(b['colonnes'])>7 for b in out)}
+    return {'titre':titre,'sous_titre':sous,'reference':reference,'blocs':out,'paysage':any(b['type']=='table' and len(b['colonnes'])>7 for b in out)}
 
 
 def identite(s):
@@ -117,7 +121,7 @@ def pdf(spec,soc):
     title=ParagraphStyle('GrandTitre',parent=bold,fontSize=20,leading=25,spaceBefore=0,spaceAfter=10)
     cell=ParagraphStyle('Cellule',parent=normal,fontSize=8,leading=11,spaceAfter=0)
     right=ParagraphStyle('Nombre',parent=cell,alignment=TA_RIGHT)
-    cell_bold=ParagraphStyle('CelluleTotal',parent=cell,fontName='EditionBold',textColor=colors.HexColor('#176B61'))
+    cell_bold=ParagraphStyle('CelluleTotal',parent=cell,fontName='EditionBold',textColor=couleur(NAVY))
     right_bold=ParagraphStyle('NombreTotal',parent=cell_bold,alignment=TA_RIGHT)
     th=ParagraphStyle('Entete',parent=cell,fontName='EditionBold',textColor=colors.white)
     total=ParagraphStyle('Total',parent=bold,textColor=couleur(TEAL),alignment=TA_RIGHT)
@@ -131,6 +135,8 @@ def pdf(spec,soc):
         _,ch=company.wrap(w-180,42);company.drawOn(c,40,h-50-ch)
         c.setFont('Edition',8);c.setFillColor(couleur(GRAY));c.drawRightString(w-40,h-48,datetime.now().strftime('%d/%m/%Y · %H:%M'))
         if soc['ville']: c.drawRightString(w-40,h-61,soc['ville'][:35])
+        if spec.get('reference'):
+            c.setFont('EditionBold',8);c.drawRightString(w-40,h-74,spec['reference'][:48])
         c.setStrokeColor(couleur('DCE5E5'));c.line(40,h-92,w-40,h-92)
         c.line(40,40,w-40,40)
         foot=p(soc['references'] or soc['nom'],ParagraphStyle('Footer',parent=normal,fontSize=6.5,leading=9))
@@ -200,11 +206,13 @@ def pdf(spec,soc):
             entetes=2 if groupes else 1
             t=Table(rows,colWidths=widths,repeatRows=entetes,hAlign='LEFT',splitByRow=1,splitInRow=1)
             demi=pad/2
-            style=[('BACKGROUND',(0,0),(-1,entetes-1),couleur(TEAL)),
-                ('ROWBACKGROUNDS',(0,entetes),(-1,-1),[colors.white,couleur('F3F7F7')]),
+            style=[('BACKGROUND',(0,0),(-1,entetes-1),couleur(INK)),
+                ('GRID',(0,0),(-1,-1),.4,couleur(INK)),
                 ('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),demi),('RIGHTPADDING',(0,0),(-1,-1),demi),
-                ('TOPPADDING',(0,0),(-1,-1),8),('BOTTOMPADDING',(0,0),(-1,-1),8),
-                ('LINEBELOW',(0,entetes-1),(-1,entetes-1),.7,couleur(TEAL)),('LINEBELOW',(0,entetes),(-1,-1),.25,couleur('DCE5E5'))]
+                ('TOPPADDING',(0,0),(-1,-1),7),('BOTTOMPADDING',(0,0),(-1,-1),7)]
+            for k,r in enumerate(b['lignes']):
+                if r and re.match(r'^(total|net à payer|résultat|solde)',str(r[0]),re.I):
+                    style.append(('BACKGROUND',(0,entetes+k),(-1,entetes+k),couleur(LABEL)))
             if groupes:
                 j=0
                 for titre,span in groupes:
@@ -223,33 +231,59 @@ def pdf(spec,soc):
             t.setStyle(TableStyle(style))
             story.extend([Spacer(1,7),t,Spacer(1,12)])
         elif b['type']=='infos':
+            # Cartouches façon FC : bande de titre gris foncé à texte blanc,
+            # corps gris très clair, filet fin tout autour.
             secs=b['sections'];n=len(secs)
-            etiquette=ParagraphStyle('Étiquette',parent=cell,fontName='EditionBold',fontSize=7.5,
-                                     textColor=couleur(TEAL),spaceAfter=4)
-            contenus=[[p(s['titre'].upper(),etiquette)]+[p(x,cell) for x in s['lignes']] for s in secs]
-            it=Table([contenus],colWidths=[(width-(n-1)*10)/n]*n,hAlign='LEFT')
+            bande=ParagraphStyle('Bande',parent=cell,fontName='EditionBold',fontSize=7.5,
+                                 textColor=colors.white,spaceAfter=0)
+            colw=(width-(n-1)*10)/n
+            ligne=[];largeurs=[]
+            for ix,s in enumerate(secs):
+                titre_rows=[[p(s['titre'].upper(),bande)]] if s['titre'] else []
+                corps=[[p(x,cell)] for x in s['lignes']] or [[p(' ',cell)]]
+                ti=Table(titre_rows+corps,colWidths=[colw])
+                sous_style=[('VALIGN',(0,0),(-1,-1),'TOP'),
+                    ('BOX',(0,0),(-1,-1),.5,couleur(INK)),
+                    ('BACKGROUND',(0,len(titre_rows)),(0,-1),couleur(FOND)),
+                    ('LEFTPADDING',(0,0),(-1,-1),10),('RIGHTPADDING',(0,0),(-1,-1),10),
+                    ('TOPPADDING',(0,0),(-1,-1),6),('BOTTOMPADDING',(0,0),(-1,-1),6)]
+                if titre_rows:
+                    sous_style.append(('BACKGROUND',(0,0),(0,0),couleur(INK)))
+                ti.setStyle(TableStyle(sous_style))
+                ligne.append(ti);largeurs.append(colw)
+                if ix<n-1:
+                    ligne.append('');largeurs.append(10)
+            it=Table([ligne],colWidths=largeurs,hAlign='LEFT')
             it.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),
-                ('BACKGROUND',(0,0),(-1,-1),couleur('F3F7F7')),
-                ('LINEABOVE',(0,0),(-1,0),2,couleur(TEAL)),
-                ('LEFTPADDING',(0,0),(-1,-1),12),('RIGHTPADDING',(0,0),(-1,-1),12),
-                ('TOPPADDING',(0,0),(-1,-1),10),('BOTTOMPADDING',(0,0),(-1,-1),10)]))
+                ('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),
+                ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
             story.extend([Spacer(1,6),it,Spacer(1,10)])
         elif b['type']=='total':
             boite=ParagraphStyle('TotalBoite',parent=bold,textColor=colors.white,
                                  alignment=TA_RIGHT,fontSize=11,leading=15,spaceBefore=0,spaceAfter=0)
             tt=Table([[p(b['texte'],boite)]],colWidths=[min(width,max(width*0.42,220))],hAlign='RIGHT')
-            tt.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),couleur(TEAL)),
+            tt.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),couleur(INK)),
                 ('LEFTPADDING',(0,0),(-1,-1),14),('RIGHTPADDING',(0,0),(-1,-1),14),
                 ('TOPPADDING',(0,0),(-1,-1),10),('BOTTOMPADDING',(0,0),(-1,-1),10)]))
             story.append(KeepTogether([Spacer(1,4),tt,Spacer(1,8)]))
         elif b['type']=='signatures':
+            # Bloc de visas façon FC : une colonne par rôle, lignes Nom /
+            # Signature (espace de signature) / Date et heure, grille fine.
             labels=[t.strip() for t in b['texte'].split('|') if t.strip()] or ['Signature']
-            signature_style=ParagraphStyle('Signature',parent=cell,fontName='EditionBold',fontSize=8.5,leading=12)
-            st=Table([[p(t,signature_style) for t in labels],[p('Nom, date et signature',cell) for t in labels]],colWidths=[width/len(labels)]*len(labels))
-            st.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),('TOPPADDING',(0,0),(-1,0),10),
-                ('BOTTOMPADDING',(0,0),(-1,0),35),('LINEABOVE',(0,0),(-1,0),.5,colors.HexColor('#A0B4B5')),
-                ('LEFTPADDING',(0,0),(-1,-1),8),('RIGHTPADDING',(0,0),(-1,-1),16)]))
-            story.append(KeepTogether([Spacer(1,26),st]))
+            visa=ParagraphStyle('Visa',parent=cell,fontName='EditionBold',fontSize=8.5,leading=12)
+            mention=ParagraphStyle('Mention',parent=cell,textColor=couleur(GRAY))
+            st=Table([[p(t,visa) for t in labels],
+                      [p('Nom :',mention) for _ in labels],
+                      [p('Signature :',mention) for _ in labels],
+                      [p('Date / heure :',mention) for _ in labels]],
+                     colWidths=[width/len(labels)]*len(labels))
+            st.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),
+                ('BACKGROUND',(0,0),(-1,0),couleur(LABEL)),
+                ('GRID',(0,0),(-1,-1),.4,couleur(INK)),
+                ('LEFTPADDING',(0,0),(-1,-1),8),('RIGHTPADDING',(0,0),(-1,-1),8),
+                ('TOPPADDING',(0,0),(-1,-1),6),('BOTTOMPADDING',(0,0),(-1,-1),6),
+                ('BOTTOMPADDING',(0,2),(-1,2),34)]))
+            story.append(KeepTogether([Spacer(1,16),st]))
         else: story.append(p(b['texte'],bold if b['type']=='titre' else total if b['type']=='total' else normal))
     doc.build(story,onFirstPage=page,onLaterPages=page)
     return output.getvalue()
@@ -284,11 +318,11 @@ def xlsx(spec,soc):
         n=len(cols);last=get_column_letter(max(2,n))
         for row,value in [(1,soc['nom']),(2,spec['titre']),(3,spec['sous_titre']),(4,soc['references']),(5,'Édité le '+datetime.now().strftime('%d/%m/%Y à %H:%M'))]:
             ws.merge_cells(f'A{row}:{last}{row}');textcell(ws.cell(row,1),value)
-            ws.cell(row,1).font=Font(name='Calibri',size=18 if row==2 else 12 if row==1 else 10,bold=row in [1,2],color=TEAL if row==2 else NAVY)
+            ws.cell(row,1).font=Font(name='Calibri',size=18 if row==2 else 12 if row==1 else 10,bold=row in [1,2],color=INK if row==2 else NAVY)
             ws.cell(row,1).alignment=Alignment(wrap_text=True,vertical='center');ws.row_dimensions[row].height=34 if row==2 else 27
         for j,c in enumerate(cols,1):
             textcell(ws.cell(7,j),c);ws.cell(7,j).font=Font(name='Calibri',bold=True,color='FFFFFF',size=10)
-            ws.cell(7,j).fill=PatternFill('solid',fgColor=TEAL);ws.cell(7,j).alignment=Alignment(wrap_text=True,vertical='center')
+            ws.cell(7,j).fill=PatternFill('solid',fgColor=INK);ws.cell(7,j).alignment=Alignment(wrap_text=True,vertical='center')
         ws.row_dimensions[7].height=32
         for i,r in enumerate(b['lignes'],8):
             maxlines=1
@@ -305,9 +339,9 @@ def xlsx(spec,soc):
                 if numeric: c.value=v;c.number_format='#,##0.00######;[Red](#,##0.00######);"–"'
                 else: textcell(c,v)
                 fort=bool(r and re.match(r'^(total|net à payer|résultat|solde)',str(r[0]),re.I))
-                c.font=Font(name='Calibri',size=11,color=TEAL if fort else NAVY,bold=fort)
+                c.font=Font(name='Calibri',size=11,color=NAVY,bold=fort)
                 c.alignment=Alignment(horizontal='right' if numeric else 'left',vertical='top',wrap_text=True)
-                c.fill=PatternFill('solid',fgColor='F3F7F7' if i%2==0 else 'FFFFFF')
+                c.fill=PatternFill('solid',fgColor=LABEL if fort else 'FFFFFF' if i%2==0 else FOND)
                 maxlines=max(maxlines,len(str(v))//38+str(v).count('\n')+1)
             ws.row_dimensions[i].height=min(200,max(27,16*maxlines))
         end=7+len(b['lignes'])

@@ -35,6 +35,9 @@ export function Home({ state, bridge }: { state: Snapshot; bridge: Bridge }) {
     <div className="workspace-section-heading"><h3>Suivez vos circuits de gestion</h3><span>Les étapes liées, au même endroit</span></div>
     <section className="workspace-flows">{flows.map((flow, index) => <article className="workspace-flow" key={flow.title}><span className="flow-number">0{index + 1}</span><h4>{flow.title}</h4><p>{flow.sub}</p><div>{flow.steps.filter(([view]) => allowed.has(view)).map(([view, label]) => <button className="workspace-link" key={view} onClick={() => bridge.navigate(view)}>{label}<span aria-hidden="true">↗</span></button>)}</div></article>)}</section>
     <div className="workspace-section-heading"><h3>Tous vos modules</h3><span>{state.groups.length} espaces accessibles à votre compte</span></div>
-    <section className="workspace-modules">{state.groups.filter(group => group.name !== 'Pilotage').map(group => <article className="workspace-module" key={group.name}><div className="module-icon"><i className={`ti ${group.items[0].icon}`} aria-hidden="true" /></div><div><h4>{group.name}</h4><div className="module-links">{group.items.map(item => <button key={item.view} className="workspace-link" onClick={() => bridge.navigate(item.view, group.name)}>{item.label}<span aria-hidden="true">↗</span></button>)}</div></div></article>)}</section>
+    {state.groups.filter(group => group.name !== 'Pilotage').map((group, gi) => <section className="tile-section" key={group.name}>
+      <h4 className="tile-section-title">{group.name}</h4>
+      <div className="tile-grid">{group.items.map((item, ii) => <button key={item.view} className={`tile tile-c${(gi * 3 + ii) % 8}${ii === 0 && group.items.length > 2 ? ' tile-lg' : ''}`} onClick={() => bridge.navigate(item.view, group.name)}><i className={`ti ${item.icon}`} aria-hidden="true" /><span className="tile-label">{item.label}</span><span className="tile-arrow" aria-hidden="true">→</span></button>)}</div>
+    </section>)}
   </>;
 }

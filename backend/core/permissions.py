@@ -33,7 +33,7 @@ def module_de_vue(view,request=None):
             return {'requisition':'approbations','ordre_depense':'tresorerie','avance':'tresorerie','justification':'tresorerie',
                     'ecriture':'comptabilite','facture':'commercial','devis':'commercial','commande':'commercial',
                     'reception':'commercial','course':'transport','document_flotte':'maintenance',
-                    'intervention':'maintenance'}.get(kind,'administration')
+                    'intervention':'maintenance','sejour':'hotel'}.get(kind,'administration')
         return 'administration'
     if source=='core.views':
         return {'TiersViewSet':'commercial','TauxChangeViewSet':'comptabilite',
