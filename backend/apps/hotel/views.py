@@ -51,13 +51,28 @@ def _acces(request, societe_id):
 
 # ═══ Chambres & housekeeping ═════════════════════════════════════════
 
-def _chambre_dict(c: Chambre, sejour=None) -> dict:
+def _chambre_dict(c: Chambre, sejour=None, prochaine=None) -> dict:
     d = {"id": str(c.id), "numero": c.numero, "categorie": c.categorie,
+         "etage": c.etage, "equipements": c.equipements,
          "tarif_nuit_usd": float(c.tarif_nuit_usd or 0), "capacite": c.capacite,
-         "etat": c.etat, "note": c.note, "actif": bool(c.actif)}
+         "etat": c.etat, "motif_hors_service": c.motif_hors_service,
+         "note": c.note, "actif": bool(c.actif)}
     if sejour is not None:
         d["sejour"] = sejour
+    if prochaine is not None:
+        d["prochaine"] = prochaine
     return d
+
+
+def _prochaine_arrivee(chambre_id):
+    """La prochaine réservation à venir de la chambre (hors séjour en cours)."""
+    s = (Sejour.objects.filter(chambre_id=chambre_id, statut="reservee",
+                               date_depart_prevue__gt=date.today())
+         .order_by("date_arrivee").first())
+    return ({"id": str(s.id), "client": s.client_nom,
+             "date_arrivee": s.date_arrivee.isoformat(),
+             "date_depart_prevue": s.date_depart_prevue.isoformat()}
+            if s else None)
 
 
 def _sejour_en_cours(chambre_id):
@@ -93,6 +108,8 @@ class ChambreViewSet(MetierModelViewSet):
                 c = Chambre.objects.create(
                     societe_id=sid, numero=numero,
                     categorie=(payload.get("categorie") or "").strip() or None,
+                    etage=(payload.get("etage") or "").strip() or None,
+                    equipements=(payload.get("equipements") or "").strip() or None,
                     tarif_nuit_usd=payload.get("tarif_nuit_usd") or 0,
                     capacite=payload.get("capacite") or 2,
                     note=(payload.get("note") or "").strip() or None,
@@ -107,7 +124,8 @@ class ChambreViewSet(MetierModelViewSet):
                 "id": str(sej.id), "numero": sej.numero, "client": sej.client_nom,
                 "date_arrivee": sej.date_arrivee.isoformat(),
                 "date_depart_prevue": sej.date_depart_prevue.isoformat()}
-                if sej else None))
+                if sej else None,
+                prochaine=_prochaine_arrivee(c.id) if not sej else None))
         return Response(out)
 
 
@@ -130,6 +148,11 @@ class ChambreViewSet(MetierModelViewSet):
                 return refus({"detail": "« Occupée » se fait par le check-in d'un "
                                         "séjour."}, status=409)
             c.etat = etat
+            if etat == "maintenance":
+                c.motif_hors_service = (payload.get("motif_hors_service") or
+                                        "").strip() or None
+            else:
+                c.motif_hors_service = None
         if "numero" in payload:
             numero = (payload["numero"] or "").strip()
             if not numero:
@@ -137,6 +160,10 @@ class ChambreViewSet(MetierModelViewSet):
             c.numero = numero
         if "categorie" in payload:
             c.categorie = (payload["categorie"] or "").strip() or None
+        if "etage" in payload:
+            c.etage = (payload["etage"] or "").strip() or None
+        if "equipements" in payload:
+            c.equipements = (payload["equipements"] or "").strip() or None
         if "tarif_nuit_usd" in payload:
             c.tarif_nuit_usd = payload["tarif_nuit_usd"] or 0
         if "capacite" in payload:
