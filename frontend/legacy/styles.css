@@ -217,8 +217,8 @@ td.danger,.danger{color:var(--r);font-weight:700}
 .pos-session i.ti{font-size:17px}
 .pos-session-soldes{font-weight:800;font-size:15px;color:var(--text);display:flex;align-items:baseline;gap:8px}
 .pos-session-soldes em{font-style:normal;font-weight:600;font-size:12px;color:var(--text2)}
-.caisse-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;margin-bottom:16px}
-.caisse-card{background:var(--card);border:1px solid var(--bdr);border-radius:var(--rads);padding:12px 14px;cursor:pointer;transition:all .12s}
+.caisse-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(235px,1fr));gap:12px;margin-bottom:16px}
+.caisse-card{background:var(--card);border:1px solid var(--bdr);border-radius:12px;padding:16px 18px;min-width:0;cursor:pointer;transition:all .12s}
 .caisse-card:hover{border-color:var(--pm)}
 .caisse-card.on{border-color:var(--p);box-shadow:0 0 0 2px var(--pl)}
 .caisse-card .cc-top{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:13px}

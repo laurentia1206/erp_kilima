@@ -75,5 +75,5 @@ const Systeme=(()=>{
       catch(err){error.textContent=err.message;button.disabled=false;}
     };
   }
-  return {init,ouvrir,autorise};
+  return {init,ouvrir,autorise,moduleVue};
 })();

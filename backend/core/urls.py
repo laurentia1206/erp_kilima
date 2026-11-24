@@ -27,6 +27,7 @@ urlpatterns = [
     path("config/paliers/<uuid:palier_id>", config_views.PalierViewSet.as_view({'put': 'update', 'delete': 'destroy'}, http_method_names=['put', 'delete', 'options'], detail=True, basename='palier')),
     path("config/parametres", config_views.ParametreViewSet.as_view({'get': 'list'}, http_method_names=['get', 'options'], detail=False, basename='parametre')),
     path("config/parametres/<uuid:parametre_id>", config_views.ParametreViewSet.as_view({'put': 'update'}, http_method_names=['put', 'options'], detail=True, basename='parametre')),
+    path("config/modules-societe", config_views.ModulesSocieteViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='modules-societe')),
     path("config/intervenants", config_views.IntervenantViewSet.as_view({'get': 'list'}, http_method_names=['get', 'options'], detail=False, basename='intervenant')),
     path("config/utilisateurs", config_views.UtilisateurViewSet.as_view({'get': 'list', 'post': 'create'}, http_method_names=['get', 'post', 'options'], detail=False, basename='utilisateur')),
     path("config/utilisateurs/<uuid:utilisateur_id>", config_views.UtilisateurViewSet.as_view({'patch': 'partial_update'}, http_method_names=['patch', 'options'], detail=True, basename='utilisateur')),

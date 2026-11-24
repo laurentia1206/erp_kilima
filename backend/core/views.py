@@ -307,7 +307,18 @@ class SocieteViewSet(MetierModelViewSet):
         if est_super_admin(request.user):
             out={}
         else:
-            for entry in out.values(): entry['roles']=sorted(roles_pour_societe(request.user,entry['id']))
+            import json as json_lib
+            from . import services
+            for entry in out.values():
+                entry['roles']=sorted(roles_pour_societe(request.user,entry['id']))
+                # Modules masqués pour cette société (paramètre modules.masques,
+                # JSON) : le menu du navigateur les retire de l'affichage.
+                try:
+                    masques = json_lib.loads(services.get_parametre(
+                        "modules.masques", entry['id'], "[]") or "[]")
+                except ValueError:
+                    masques = []
+                entry['modules_masques'] = masques if isinstance(masques, list) else []
         return Response(list(out.values()))
 
 

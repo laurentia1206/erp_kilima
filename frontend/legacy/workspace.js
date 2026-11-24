@@ -9,8 +9,12 @@ function setMobileMenu(open) {
 }
 
 function visibleModules() {
+  // Modules masqués par la société active (réglage « Modules par société »).
+  const masques = (typeof societes !== "undefined" && typeof currentSocieteId !== "undefined"
+    && societes.find((s) => s.id === currentSocieteId)?.modules_masques) || [];
+  const cache = (v) => typeof Systeme !== "undefined" && masques.includes(Systeme.moduleVue(v));
   return NAV.filter((g) => !g.roles || hasGlobal(...g.roles)).map((g) => ({
-    ...g, items: g.items.filter((it) => (!it.roles || hasGlobal(...it.roles)) && (typeof Systeme==='undefined'||Systeme.autorise(it.v))),
+    ...g, items: g.items.filter((it) => (!it.roles || hasGlobal(...it.roles)) && (typeof Systeme==='undefined'||Systeme.autorise(it.v)) && !cache(it.v)),
   })).filter((g) => g.items.length);
 }
 

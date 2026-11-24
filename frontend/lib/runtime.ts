@@ -37,7 +37,7 @@ export function loadRuntime(): Promise<Bridge> {
     for (const name of scripts) {
       await new Promise<void>((resolve, reject) => {
         const script = document.createElement('script');
-        script.src = `/legacy/${name}.js?v=next-3`;
+        script.src = `/legacy/${name}.js?v=next-4`;
         script.async = false;
         script.onload = () => resolve();
         script.onerror = () => reject(new Error('Un module n’a pas pu être chargé. Rechargez la page.'));

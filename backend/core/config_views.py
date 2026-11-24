@@ -441,6 +441,79 @@ class ParametreViewSet(MetierModelViewSet):
         return Response({"id": str(p.id), "valeur": p.valeur})
 
 
+# ── Modules affichés par société ─────────────────────────────────────
+# Chaque société peut masquer les modules qu'elle n'utilise pas : le menu
+# du navigateur retire les groupes correspondants. Pilotage, administration
+# et audit restent toujours visibles (on ne se verrouille pas dehors).
+MODULES_MASQUABLES = {
+    "approbations": "Réquisitions & validations",
+    "tresorerie": "Trésorerie",
+    "comptabilite": "Comptabilité",
+    "commercial": "Achats · Ventes · Point de vente",
+    "stocks": "Stocks & inventaires",
+    "rh": "Ressources humaines",
+    "hotel": "Hôtel & restauration",
+    "transport": "Transport",
+    "engins": "Location d'engins",
+    "maintenance": "Parc & maintenance",
+    "groupe": "Gestion du groupe",
+}
+
+
+class ModulesSocieteViewSet(MetierViewSet):
+    """Lecture et réglage des modules masqués d'une société (affichage)."""
+
+    def list(self, request):
+        return self._traiter(request)
+
+    def create(self, request):
+        return self._traiter(request)
+
+    @transaction.atomic
+    def _traiter(self, request):
+        if not _est_admin(request.user):
+            return refus({"detail": "Réglage réservé au DFI / Président / Admin."},
+                         status=403)
+        societe_id = (request.query_params.get("societe_id")
+                      or (request.data or {}).get("societe_id"))
+        societe = Societe.objects.filter(id=societe_id).first() if societe_id else None
+        if not societe:
+            return refus({"detail": "societe_id requis."}, status=422)
+        import json as json_lib
+        if request.method == "POST":
+            masques = (request.data or {}).get("masques")
+            if not isinstance(masques, list) \
+                    or any(m not in MODULES_MASQUABLES for m in masques):
+                return refus({"detail": f"masques : liste de codes parmi "
+                                        f"{', '.join(sorted(MODULES_MASQUABLES))}."},
+                             status=422)
+            masques = sorted(set(masques))
+            p = Parametre.objects.filter(societe_id=societe.id,
+                                         cle="modules.masques").first()
+            avant = p.valeur if p else None
+            if p:
+                p.valeur = json_lib.dumps(masques)
+                p.save(update_fields=["valeur"])
+            else:
+                p = Parametre.objects.create(
+                    societe_id=societe.id, cle="modules.masques",
+                    valeur=json_lib.dumps(masques), type_valeur="json",
+                    description="Modules masqués dans le menu de cette société")
+            services.enregistrer_audit(request.user.id, "UPDATE", "parametre", p.id,
+                                       {"valeur": avant},
+                                       {"valeur": p.valeur, "societe": societe.code})
+            return Response({"societe_id": str(societe.id), "masques": masques})
+        try:
+            masques = json_lib.loads(services.get_parametre(
+                "modules.masques", societe.id, "[]") or "[]")
+        except ValueError:
+            masques = []
+        return Response({"societe_id": str(societe.id),
+                         "modules": [{"code": code, "libelle": libelle,
+                                      "masque": code in masques}
+                                     for code, libelle in MODULES_MASQUABLES.items()]})
+
+
 # ── Intervenants & agents ────────────────────────────────────────────
 class IntervenantViewSet(MetierModelViewSet):
     """Ressource Intervenant ; contrats HTTP et validations métier conservés."""
