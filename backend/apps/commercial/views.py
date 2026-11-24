@@ -360,6 +360,9 @@ def _creer_facture(request, sid):
                 if l.get("article_id") else None
             if l.get("article_id") and (not art or str(art.societe_id) != str(sid)):
                 return refus({"detail": "Article introuvable."}, status=400)
+            erreur = _erreur_nature(art, type_)
+            if erreur:
+                return refus({"detail": erreur}, status=400)
             taux = l["taux_tva"] if l.get("taux_tva") is not None else \
                 (float(art.taux_tva) if art else defaut_tva)
             if art is not None and not art.assujetti_tva:
@@ -705,6 +708,28 @@ def _commande_dict(c: Commande) -> dict:
                         "taux_tva": float(l.taux_tva)} for l in lignes]}
 
 
+NATURES_ARTICLE = ("marchandise", "matiere_premiere", "consommable", "plat")
+NATURES_VENTE = ("marchandise", "plat")
+
+
+def _erreur_nature(art, sens):
+    """Message de refus si la nature de l'article ne convient pas au sens du
+    document ('vente' ou 'achat') ; None sinon. Les plats / produits maison
+    se fabriquent à partir de leurs ingrédients (fiches techniques de la
+    cuisine) : ils se vendent mais ne s'achètent jamais."""
+    if art is None:
+        return None
+    nature = art.nature or "marchandise"
+    if sens == "vente" and nature not in NATURES_VENTE:
+        return (f"{art.code} est une "
+                f"{'matière première' if nature == 'matiere_premiere' else 'fourniture consommable'}"
+                f" — pas un article de vente.")
+    if sens == "achat" and nature == "plat":
+        return (f"{art.code} est un plat / produit maison : il se fabrique à "
+                f"partir de ses ingrédients et ne s'achète pas.")
+    return None
+
+
 def _lignes_commande_depuis(payload, cmd_id, societe_id):
     """Crée les lignes et retourne le total HT (aides communes POST/PUT)."""
     total = 0.0
@@ -715,6 +740,10 @@ def _lignes_commande_depuis(payload, cmd_id, societe_id):
         if l.get('article_id') and (not art or str(art.societe_id) != str(societe_id)):
             from rest_framework.exceptions import ValidationError
             raise ValidationError('Choisissez un article de cette société.')
+        erreur = _erreur_nature(art, "achat")
+        if erreur:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError(erreur)
         taux = l["taux_tva"] if l.get("taux_tva") is not None else \
             (float(art.taux_tva) if art else defaut_tva)
         if art is not None and not art.assujetti_tva:
@@ -1309,9 +1338,9 @@ class ArticleViewSet(MetierModelViewSet):
             taux = payload["taux_tva"] if payload.get("taux_tva") is not None else float(
                 services.get_parametre("tva.taux_defaut", sid, "16"))
             nature = payload.get("nature", "marchandise")
-            if nature not in ("marchandise", "matiere_premiere", "consommable"):
-                return refus({"detail": "nature : marchandise, matiere_premiere ou "
-                                        "consommable."}, status=422)
+            if nature not in NATURES_ARTICLE:
+                return refus({"detail": f"nature : {', '.join(NATURES_ARTICLE)}."},
+                             status=422)
             a = Article.objects.create(
                 societe_id=sid, code=code, designation=payload["designation"].strip(),
                 nature=nature,
@@ -1325,7 +1354,9 @@ class ArticleViewSet(MetierModelViewSet):
                 compte_achat=payload.get("compte_achat", "601"),
                 compte_vente=payload.get("compte_vente", "701"),
                 compte_stock=payload.get("compte_stock", "31"),
-                gere_stock=payload.get("gere_stock", True))
+                # Un plat se produit à la commande : jamais de stock propre.
+                gere_stock=False if nature == "plat"
+                else payload.get("gere_stock", True))
             return Response(self.get_serializer(a).data, status=201)
 
         arts = list(self.get_queryset().order_by("code"))
@@ -1351,10 +1382,17 @@ class ArticleViewSet(MetierModelViewSet):
         verrouiller_catalogue(a.societe_id)
         verifier_doublon(Article.objects.filter(societe_id=a.societe_id),controle,'designation',a.id)
         if payload.get("nature") is not None:
-            if payload["nature"] not in ("marchandise", "matiere_premiere",
-                                         "consommable"):
-                return refus({"detail": "nature : marchandise, matiere_premiere ou "
-                                        "consommable."}, status=422)
+            if payload["nature"] not in NATURES_ARTICLE:
+                return refus({"detail": f"nature : {', '.join(NATURES_ARTICLE)}."},
+                             status=422)
+            if payload["nature"] == "plat" and a.gere_stock \
+                    and payload.get("gere_stock") is not False:
+                if float(a.stock_qte or 0) != 0 or float(a.stock_valeur or 0) != 0:
+                    return refus({"detail": f"{a.code} a encore du stock — videz-le "
+                                            f"avant d'en faire un plat (un plat se "
+                                            f"produit, il n'a pas de stock propre)."},
+                                 status=409)
+                a.gere_stock = False
             a.nature = payload["nature"]
         if payload.get("gere_stock") is not None \
                 and bool(payload["gere_stock"]) != bool(a.gere_stock):
@@ -1590,11 +1628,9 @@ class PointDeVenteViewSet(MetierViewSet):
                 art = Article.objects.filter(id=l.get("article_id")).first()
                 if not art or str(art.societe_id) != str(sid):
                     return refus({"detail": "Article invalide."}, status=400)
-                if (art.nature or "marchandise") != "marchandise":
-                    return refus({"detail": f"{art.code} est une "
-                                            f"{'matière première' if art.nature == 'matiere_premiere' else 'fourniture consommable'}"
-                                            f" — pas un article de vente."},
-                                 status=400)
+                erreur = _erreur_nature(art, "vente")
+                if erreur:
+                    return refus({"detail": erreur}, status=400)
                 prix = l.get("prix")
                 if prix is None and pv.liste_prix_id:
                     t = TarifArticle.objects.filter(liste_prix_id=pv.liste_prix_id,

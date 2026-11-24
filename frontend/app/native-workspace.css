@@ -43,6 +43,9 @@
 .business-dialog .business-field, .native-workspace .business-field { gap:5px; margin:0 0 16px; font-size:11px; font-weight:700; color:var(--text2); letter-spacing:.02em; text-transform:uppercase; }
 .business-dialog .business-field input, .business-dialog .business-field select, .business-dialog .business-field textarea,
 .native-workspace .business-field input, .native-workspace .business-field select, .native-workspace .business-field textarea { font-size:13px; font-weight:400; letter-spacing:normal; text-transform:none; color:var(--text); }
+/* Hauteur unique pour tous les contrôles : rangées impeccables. */
+.business-dialog .business-field input:not([type=checkbox]):not([type=file]), .business-dialog .business-field select { height:40px; box-sizing:border-box; }
+.business-dialog .business-field { min-width:0; }
 .business-dialog .business-form-grid, .native-workspace .business-form-grid { gap:0 16px; }
 .business-dialog fieldset.card { padding:14px; margin:12px 0; }
 .business-dialog fieldset.card legend { padding:0 6px; color:var(--p); font-size:12px; font-weight:700; }

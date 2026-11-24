@@ -170,6 +170,10 @@ def _calculer_lignes(d: Devis, societe_id, lignes_in: list[dict]):
             if l.get("article_id") else None
         if l.get("article_id") and (not art or str(art.societe_id) != str(societe_id)):
             return refus({"detail": "Article invalide."}, status=400)
+        from apps.commercial.views import _erreur_nature
+        erreur = _erreur_nature(art, "vente")
+        if erreur:
+            return refus({"detail": erreur}, status=400)
         designation = (l.get("designation") or "").strip() \
             or (art.designation if art else None)
         if not designation:

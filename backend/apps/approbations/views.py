@@ -365,7 +365,7 @@ class RequisitionViewSet(MetierModelViewSet):
 # ── G02 Ordres de dépense ────────────────────────────────────────────
 
 
-ROLES_DECAISSEMENT_DEFAUT = {"caisse": "CAISSIER_CENTRAL,CAISSIER_VENDEUR",
+ROLES_DECAISSEMENT_DEFAUT = {"caisse": "CAISSIER_CENTRAL,CAISSIER_VENDEUR,DFI",
                              "banque": "COMPTABLE,DFI"}
 
 

@@ -28,9 +28,11 @@
 /* Grille de formulaire calibrée au contenu : 6 colonnes — un champ texte ou
    une liste en occupe 3 (deux par rangée), un nombre ou une date 2 (trois par
    rangée), une zone de texte toute la largeur. */
-.business-form-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0 18px; }
+/* Formulaires : deux colonnes STRICTEMENT égales (rangées alignées, pas de
+   trous), pleine largeur pour les textes longs, tiers de largeur pour les
+   lignes d'articles (description · quantité · prix sur une rangée). */
+.business-form-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0 18px; align-items: end; }
 .business-form-grid > * { grid-column: span 3; }
-.business-form-grid > .business-field:has(input[type=number]), .business-form-grid > .business-field:has(input[type=date]), .business-form-grid > .business-field:has(input[type=time]), .business-form-grid > .business-field:has(input[type=month]) { grid-column: span 2; }
 .business-form-grid > .business-field:has(textarea) { grid-column: 1 / -1; }
 .business-form-grid > .business-field.business-field-compact { grid-column: span 2; }
 .business-fieldset { border: 0; padding: 0; min-width: 0; }
@@ -172,6 +174,10 @@
 .room-counter strong { font-size: 18px; }
 .room-counter span { font-size: 12px; color: #61717c; }
 .room-counter.on { border-color: #176b61; box-shadow: inset 0 0 0 1px #176b61; }
+/* Caisses : soldes en avant, carte sélectionnée soulignée. */
+.cash-card.cash-on { border-color: #176b61; box-shadow: inset 0 0 0 1px #176b61; }
+.cash-soldes { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 8px 0 2px; font-size: 12.5px; color: #61717c; }
+.cash-soldes strong { font-size: 21px; color: #183342; margin-right: 4px; font-variant-numeric: tabular-nums; }
 .room-counter.etat-libre strong { color: #1d6e4c; }
 .room-counter.etat-occupee strong { color: #0b5394; }
 .room-counter.etat-sale strong { color: #a33a24; }
