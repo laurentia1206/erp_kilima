@@ -3,7 +3,7 @@ const Systeme=(()=>{
   let generation=0;
   const root=()=>document.querySelector('#view-systeme');
   const labels={consulter:'Consulter',creer:'Créer',modifier:'Modifier',supprimer:'Supprimer',executer:'Actions métier',exporter:'Exporter'};
-  const groupes={'Pilotage':'pilotage','Réquisitions & validations':'approbations','Trésorerie':'tresorerie','Comptabilité':'comptabilite','Achats':'commercial','Ventes':'commercial','Point de vente':'commercial','Stocks & inventaires':'stocks','Ressources humaines':'rh','Hôtel & restauration':'hotel','Transport':'transport','Location d’engins':'engins','Parc & maintenance':'maintenance','Gestion du groupe':'groupe','Administration & réglages':'administration'};
+  const groupes={'Pilotage':'pilotage','Réquisitions & validations':'approbations','Trésorerie':'tresorerie','Comptabilité':'comptabilite','Achats':'commercial','Ventes':'commercial','Point de vente':'pos','Stocks & inventaires':'stocks','Ressources humaines':'rh','Hôtel & restauration':'hotel','Transport':'transport','Location d’engins':'engins','Parc & maintenance':'maintenance','Gestion du groupe':'groupe','Administration & réglages':'administration'};
   function moduleVue(view){
     if(view==='accueil'||view==='systeme')return null;
     if(view==='audit')return 'audit';

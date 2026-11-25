@@ -151,19 +151,18 @@ const hasGlobal = (...rs) => Boolean(me?.super_administrateur) || societes.some(
 let collapsed = savedJSON("kh_collapsed", {});
 const NAV = [
   { g: "Pilotage", items: [
-    { v: "accueil", l: "Accueil", i: "ti-home" },
-    { v: "dashboard", l: "Tableau de bord", i: "ti-layout-dashboard" }] },
+    { v: "accueil", l: "Accueil", i: "ti-home" }] },
   { g: "Approbations", items: [
-    { v: "approbation", l: "Centre d'approbation", i: "ti-checks", badge: "appro" },
     { v: "nouvelle-req", l: "Nouvelle réquisition", i: "ti-file-plus" },
-    { v: "requisitions", l: "Réquisitions", i: "ti-files" }] },
-  { g: "Décaissement", items: [
-    { v: "ordres", l: "Ordres de dépense", i: "ti-receipt" },
-    { v: "avances", l: "Avances à justifier", i: "ti-cash" }] },
-  { g: "Caisses (trésorerie)", items: [
+    { v: "requisitions", l: "Réquisitions", i: "ti-files" },
+    { v: "approbation", l: "Centre d'approbation", i: "ti-checks", badge: "appro" }] },
+  { g: "Trésorerie", items: [
     { v: "caisse", l: "Journal & soldes", i: "ti-book-2" },
+    { v: "ordres", l: "Ordres de dépense", i: "ti-receipt" },
     { v: "caisse-exec", l: "Décaissements à exécuter", i: "ti-arrow-bar-to-down", roles: ["CAISSIER_CENTRAL", "CAISSIER_VENDEUR", "DFI", "COMPTABLE"] },
-    { v: "transferts", l: "Transferts", i: "ti-arrows-exchange", roles: ["CAISSIER_CENTRAL", "CAISSIER_VENDEUR", "COMPTABLE", "DFI"] }] },
+    { v: "avances", l: "Avances à justifier", i: "ti-cash" },
+    { v: "transferts", l: "Transferts", i: "ti-arrows-exchange", h: 1, roles: ["CAISSIER_CENTRAL", "CAISSIER_VENDEUR", "COMPTABLE", "DFI"] },
+    { v: "rapports-tresorerie", l: "Rapports", i: "ti-report-analytics" }] },
   { g: "Point de vente", roles: ["CAISSIER_CENTRAL", "CAISSIER_VENDEUR", "COMPTABLE", "DFI"], items: [
     { v: "pos", l: "Écran de vente", i: "ti-cash-register" },
     { v: "tarifs-pos", l: "Tarifs & points de vente", i: "ti-tags", roles: ["COMPTABLE", "DFI"] }] },
@@ -171,7 +170,8 @@ const NAV = [
     { v: "commandes", l: "Commandes fournisseurs", i: "ti-clipboard-list" },
     { v: "receptions", l: "Réceptions", i: "ti-truck-delivery", badge: "recv" },
     { v: "achats", l: "Factures d'achat", i: "ti-shopping-cart" },
-    { v: "fournisseurs", l: "Fournisseurs & situations", i: "ti-users" }] },
+    { v: "fournisseurs", l: "Fournisseurs & situations", i: "ti-users" },
+    { v: "rapports-commercial", l: "Rapports", i: "ti-report-analytics" }] },
   { g: "Ventes", roles: ["COMPTABLE", "DFI"], items: [
     { v: "devis", l: "Devis & commandes", i: "ti-file-description", badge: "devispo" },
     { v: "ventes", l: "Factures de vente", i: "ti-tag" },
@@ -180,31 +180,36 @@ const NAV = [
   { g: "Stock", roles: ["COMPTABLE", "DFI", "DG", "CAISSIER_CENTRAL"], items: [
     { v: "stock", l: "État du stock", i: "ti-packages" },
     { v: "depots", l: "Dépôts & transferts", i: "ti-building-warehouse" },
-    { v: "articles", l: "Articles", i: "ti-box" }] },
+    { v: "articles", l: "Articles", i: "ti-box" },
+    { v: "inventaires", l: "Inventaires & écarts", i: "ti-clipboard-check", h: 1 },
+    { v: "rapports-stock", l: "Rapports", i: "ti-report-analytics" }] },
   { g: "Transport", roles: ["COMPTABLE", "DFI", "DG"], items: [
     { v: "courses", l: "Fiches de course", i: "ti-steering-wheel", badge: "crs" },
     { v: "flotte", l: "Flotte & maintenance", i: "ti-truck" },
     { v: "contrats-transport", l: "Contrats de transport", i: "ti-writing-sign" },
     { v: "flotte-documents", l: "Documents & échéances", i: "ti-license" },
     { v: "carburant", l: "Suivi carburant", i: "ti-gas-station" },
+    { v: "rapports-transport", l: "Rapports", i: "ti-report-analytics" },
     { v: "config-transport", l: "Configuration", i: "ti-settings" }] },
   { g: "Location d'engins", roles: ["COMPTABLE", "DFI", "DG", "ASSISTANT_TECH", "ASSISTANT_TECHNIQUE", "DT", "DISPATCHER"], items: [
     { v: "engins-parc", l: "Parc d'engins", i: "ti-backhoe" },
     { v: "engins-heures", l: "Heures prestées", i: "ti-clock-hour-4" },
     { v: "engins-rpe", l: "RPE & facturation", i: "ti-file-invoice" },
     { v: "engins-reconciliation", l: "Réconciliation mensuelle", i: "ti-scale" },
-    { v: "engins-rapports", l: "Rapports d'exploitation", i: "ti-chart-bar" },
     { v: "carburant", l: "Suivi carburant", i: "ti-gas-station" },
+    { v: "engins-rapports", l: "Rapports", i: "ti-report-analytics" },
     { v: "config-engins", l: "Configuration", i: "ti-settings" }] },
   { g: "Hôtel", roles: ["RECEPTIONNISTE", "CAISSIER_CENTRAL", "COMPTABLE", "DFI", "DG"], items: [
     { v: "hotel-reception", l: "Réception & séjours", i: "ti-bed" },
     { v: "hotel-chambres", l: "Chambres & ménage", i: "ti-door" },
     { v: "cuisine", l: "Cuisine & food cost", i: "ti-chef-hat" },
+    { v: "rapports-hotel", l: "Rapports", i: "ti-report-analytics" },
     { v: "config-hotel", l: "Configuration", i: "ti-settings" }] },
   { g: "Maintenance", roles: ["MAINTENANCIER", "DT", "ASSISTANT_TECHNIQUE", "COMPTABLE", "DFI", "DG"], items: [
     { v: "maintenance-parc", l: "Parc & échéances", i: "ti-gauge" },
     { v: "maintenance-interventions", l: "Interventions", i: "ti-tool" },
     { v: "flotte-documents", l: "Documents & échéances", i: "ti-license" },
+    { v: "rapports-maintenance", l: "Rapports", i: "ti-report-analytics" },
     { v: "config-maintenance", l: "Configuration", i: "ti-settings" }] },
   { g: "Groupe", roles: ["DFI", "PRESIDENT", "COMPTABLE"], items: [
     { v: "intersociete", l: "Opérations intersociétés", i: "ti-affiliate" }] },
@@ -212,13 +217,15 @@ const NAV = [
     { v: "cockpit", l: "Cockpit financier", i: "ti-gauge" },
     { v: "compta", l: "Pièces en attente", i: "ti-file-invoice", badge: "compta" },
     { v: "saisie-od", l: "Saisir une écriture", i: "ti-pencil-plus" },
-    { v: "grand-livre", l: "Grand livre", i: "ti-list-details" },
     { v: "lettrage", l: "Lettrage des tiers", i: "ti-link" },
     { v: "rapprochement", l: "Rapprochement bancaire", i: "ti-building-bank" },
-    { v: "analytique", l: "Analytique", i: "ti-chart-pie" },
-    { v: "balance", l: "Balance", i: "ti-scale" },
-    { v: "etats", l: "États financiers", i: "ti-report-money" },
-    { v: "plan-comptable", l: "Plan comptable & journaux", i: "ti-book-2" }] },
+    { v: "plan-comptable", l: "Plan comptable & journaux", i: "ti-book-2" },
+    { v: "balance", l: "Balance", i: "ti-scale", h: 1 },
+    { v: "grand-livre", l: "Grand livre", i: "ti-list-details", h: 1 },
+    { v: "etats", l: "États financiers", i: "ti-report-money", h: 1 },
+    { v: "analytique", l: "Analytique", i: "ti-chart-pie", h: 1 },
+    { v: "tva", l: "Déclarations TVA", i: "ti-receipt-tax", h: 1 },
+    { v: "rapports-compta", l: "Rapports", i: "ti-report-analytics" }] },
   { g: "Paramètres", items: [
     { v: "taux", l: "Taux du jour", i: "ti-currency-dollar" },
     { v: "config", l: "Paramétrage", i: "ti-adjustments", roles: ["DFI", "PRESIDENT", "ADMIN_SYS"] },
@@ -229,7 +236,7 @@ function renderSidebar() {
   let h = "";
   for (const grp of NAV) {
     if (grp.roles && !hasGlobal(...grp.roles)) continue;
-    const items = grp.items.filter((it) => (!it.roles || hasGlobal(...it.roles)) && Systeme.autorise(it.v));
+    const items = grp.items.filter((it) => !it.h && (!it.roles || hasGlobal(...it.roles)) && Systeme.autorise(it.v));
     if (!items.length) continue;
     h += `<div class="nav-group ${collapsed[grp.g] ? "collapsed" : ""}">
       <button type="button" class="nav-group-hdr" aria-expanded="${!collapsed[grp.g]}" data-toggle="${grp.g}">${grp.g}<i class="ti ti-chevron-down chev"></i></button>
@@ -247,7 +254,12 @@ function renderSidebar() {
 // ── Navigation ───────────────────────────────────────────────────────
 const TITLES = {
   accueil: ["Accueil", "Vos priorités et vos opérations"],
-  dashboard: ["Tableau de bord", "Vue d'ensemble de la société"],
+  "rapports-tresorerie": ["Rapports — Trésorerie", "Journaux de caisse, rapports Z et transferts, regroupés"],
+  "rapports-stock": ["Rapports — Stocks", "États valorisés, inventaires et historiques des entrées"],
+  "rapports-transport": ["Rapports — Transport", "Rentabilité, carburant et échéances documentaires"],
+  "rapports-hotel": ["Rapports — Hôtel & restauration", "Occupation des chambres, cuisine et inventaires"],
+  "rapports-maintenance": ["Rapports — Maintenance", "Interventions, consommations de pièces et échéances"],
+  "rapports-compta": ["Rapports comptables", "Balance, grand livre, états financiers, analytique et TVA"],
   approbation: ["Centre d'approbation", "Ce qui attend votre validation"],
   "nouvelle-req": ["Nouvelle réquisition", "Soumettre une demande de sortie de fonds"],
   requisitions: ["Réquisitions", "Suivi des demandes"],
@@ -468,30 +480,6 @@ RENDER.accueil = () => {
     </div>`).join("")}</div>`;
   el.querySelectorAll("[data-go]").forEach((b) => b.onclick = () => go(b.dataset.go));
   el.querySelectorAll('[data-act="saisie"]').forEach((b) => b.onclick = () => saisieODModal(() => toast("Écriture enregistrée.", "ok")));
-};
-
-RENDER.dashboard = async () => {
-  const el = $("#view-dashboard");
-  el.innerHTML = `<div class="muted">Chargement…</div>`;
-  const d = await api(`/dashboard?societe_id=${currentSocieteId}`);
-  const k = (label, val, sub, color, icon) => `
-    <div class="kpi-card" style="--accent:${color};--kpi-color:${color}">
-      <div class="kpi-label"><i class="ti ti-${icon}"></i>${label}</div>
-      <div class="kpi-val">${val}</div><div class="kpi-sub">${sub || ""}</div></div>`;
-  el.innerHTML = `
-    <div class="kpi-row">
-      ${k("Réquisitions soumises", d.requisitions_soumises, "en attente de validation", "var(--a)", "file-text")}
-      ${k("Ordres à valider", d.ordres_a_valider, "sortie de fonds", "var(--p)", "receipt")}
-      ${k("Avances en cours", d.avances_en_cours, fmtUSD(d.avances_montant_usd), "var(--t)", "cash")}
-      ${k("Avances en retard", d.avances_en_retard, "non justifiées à temps", "var(--r)", "alarm")}
-      ${k("Bénéficiaires bloqués", d.beneficiaires_bloques, "blocage automatique", "var(--r)", "lock")}
-    </div>
-    <div class="card"><div class="card-hdr"><div class="card-hdr-title"><i class="ti ti-bolt"></i> Raccourcis</div></div>
-      <div class="card-body" style="display:flex;gap:10px;flex-wrap:wrap">
-        <button class="btn btn-primary" onclick="go('nouvelle-req')"><i class="ti ti-file-plus"></i> Nouvelle réquisition</button>
-        <button class="btn" onclick="go('approbation')"><i class="ti ti-checkbox"></i> Centre d'approbation</button>
-        <button class="btn" onclick="go('avances')"><i class="ti ti-cash"></i> Avances</button>
-      </div></div>`;
 };
 
 RENDER.approbation = async () => {

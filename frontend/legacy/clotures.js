@@ -7,8 +7,8 @@ const Clotures = (() => {
   const compteur=(titre,valeur,sous='')=>`<div class="kpi-card"><div class="kpi-label">${titre}</div><div class="kpi-val">${valeur}</div><div class="kpi-sub">${sous}</div></div>`;
   function confirmLeave(){if(!tvaDirty)return true;if(!confirm('Le dossier TVA contient des changements non enregistrés. Les abandonner ?'))return false;tvaDirty=false;return true;}
   function init(){
-    NAV.find(g=>g.g==='Stock').items.splice(2,0,{v:'inventaires',l:'Inventaires & écarts',i:'ti-clipboard-check'});
-    NAV.find(g=>g.g==='Comptabilité').items.splice(3,0,{v:'tva',l:'Déclarations TVA',i:'ti-percentage'});
+    // inventaires et tva sont déclarés dans NAV (app.js) : accessibles depuis
+    // le menu « Rapports » de leur module, sans entrée directe dans le menu.
     TITLES.inventaires=['Inventaires & écarts','Comptage physique, validation et suivi des ajustements'];
     TITLES.tva=['Déclarations TVA','Dossier mensuel par société · préparation et suivi du dépôt'];
     RENDER.inventaires=inventaires; RENDER.tva=tva;

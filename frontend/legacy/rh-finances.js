@@ -4,8 +4,10 @@ const RHFinances=(()=>{
   const money=(n,d)=>`${fmtNum(n)} ${esc(d)}`;
   const roles=()=>societes.find(s=>s.id===currentSocieteId)?.roles||[];
   function init(){
-    NAV.find(g=>g.g==='Ressources humaines').items.push({v:'rh-finances',l:'Avances & prêts',i:'ti-file-check',roles:[...prives,'DG','ADMIN']},{v:'rh-paiements',l:'Paiements RH',i:'ti-cash',roles:['DFI','CAISSIER_CENTRAL','CAISSIER_VENDEUR']});
+    NAV.find(g=>g.g==='Ressources humaines').items.push({v:'rh-finances',l:'Avances & prêts',i:'ti-file-check',roles:[...prives,'DG','ADMIN']},{v:'rh-paiements',l:'Paiements RH',i:'ti-cash',roles:['DFI','CAISSIER_CENTRAL','CAISSIER_VENDEUR']},
+      {v:'rapports-rh',l:'Rapports',i:'ti-report-analytics',roles:[...prives,'DG','ADMIN']});
     TITLES['rh-finances']=['Avances & prêts','Accord écrit, échéancier et validations successives'];TITLES['rh-paiements']=['Paiements RH','Versement des avances et prêts approuvés'];
+    TITLES['rapports-rh']=['Rapports — Ressources humaines','États de paie, bulletins, déclarations et dossiers'];
     RENDER['rh-finances']=render;RENDER['rh-paiements']=paiements;
   }
   async function render(){

@@ -32,12 +32,12 @@ const scripts = ['editions', 'navigation', 'workspace', 'module-ux', 'catalogue'
 export function loadRuntime(): Promise<Bridge> {
   // Un seul chargement, y compris avec le double effet de React Strict Mode.
   if (window.kilimaLoading) return window.kilimaLoading;
-  window.KilimaNext = { publish: () => {}, initialView: () => null, owns: view => ['accueil', 'pilotage', 'audit', 'stock', 'taux', 'articles', 'hotel-chambres', 'depots', 'inventaires', 'hotel-reception', 'cuisine', 'balance', 'grand-livre', 'saisie-od', 'plan-comptable', 'lettrage', 'rapprochement', 'cockpit', 'etats', 'analytique', 'tva', 'compta', 'rapports-commercial', 'dashboard', 'config-hotel', 'config-engins', 'config-transport', 'config-maintenance', 'contrats-transport', 'flotte-documents', 'engins-rpe', 'engins-reconciliation', 'engins-rapports', 'flotte', 'engins-parc', 'engins-heures', 'maintenance-parc', 'maintenance-interventions', 'carburant', 'tarifs-pos', 'transferts', 'caisse-exec', 'intersociete', 'nouvelle-req', 'requisitions', 'approbation', 'ordres', 'avances', 'caisse', 'courses', 'config', 'administration', 'systeme', 'rh', 'rh-simulateur', 'rh-decomptes', 'rh-finances', 'rh-paiements', 'rh-mensuel', 'achats', 'ventes', 'commandes', 'receptions', 'devis', 'fournisseurs', 'clients', 'pos'].includes(view) };
+  window.KilimaNext = { publish: () => {}, initialView: () => null, owns: view => ['accueil', 'pilotage', 'audit', 'stock', 'taux', 'articles', 'hotel-chambres', 'depots', 'inventaires', 'hotel-reception', 'cuisine', 'balance', 'grand-livre', 'saisie-od', 'plan-comptable', 'lettrage', 'rapprochement', 'cockpit', 'etats', 'analytique', 'tva', 'compta', 'rapports-commercial', 'rapports-tresorerie', 'rapports-stock', 'rapports-transport', 'rapports-hotel', 'rapports-maintenance', 'rapports-compta', 'rapports-rh', 'config-hotel', 'config-engins', 'config-transport', 'config-maintenance', 'contrats-transport', 'flotte-documents', 'engins-rpe', 'engins-reconciliation', 'engins-rapports', 'flotte', 'engins-parc', 'engins-heures', 'maintenance-parc', 'maintenance-interventions', 'carburant', 'tarifs-pos', 'transferts', 'caisse-exec', 'intersociete', 'nouvelle-req', 'requisitions', 'approbation', 'ordres', 'avances', 'caisse', 'courses', 'config', 'administration', 'systeme', 'rh', 'rh-simulateur', 'rh-decomptes', 'rh-finances', 'rh-paiements', 'rh-mensuel', 'achats', 'ventes', 'commandes', 'receptions', 'devis', 'fournisseurs', 'clients', 'pos'].includes(view) };
   window.kilimaLoading = (async () => {
     for (const name of scripts) {
       await new Promise<void>((resolve, reject) => {
         const script = document.createElement('script');
-        script.src = `/legacy/${name}.js?v=next-4`;
+        script.src = `/legacy/${name}.js?v=next-5`;
         script.async = false;
         script.onload = () => resolve();
         script.onerror = () => reject(new Error('Un module n’a pas pu être chargé. Rechargez la page.'));

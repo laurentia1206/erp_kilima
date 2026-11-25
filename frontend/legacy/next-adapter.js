@@ -14,8 +14,8 @@
   function snapshot(extra={}) {
     if(!me)taskTarget=null;
     const groups = me ? visibleModules().map(group => ({
-      name:group.g, items:group.items.map(item=>({view:item.v, label:me.super_administrateur&&item.v==='administration'?'Utilisateurs & rôles':me.super_administrateur&&item.v==='audit'?'Journal de sécurité':item.l, icon:item.i, badge:item.badge})),
-    })) : [];
+      name:group.g, items:group.items.filter(item=>!item.h).map(item=>({view:item.v, label:me.super_administrateur&&item.v==='administration'?'Utilisateurs & rôles':me.super_administrateur&&item.v==='audit'?'Journal de sécurité':item.l, icon:item.i, badge:item.badge})),
+    })).filter(group=>group.items.length) : [];
     const title = me?.super_administrateur&&activeView==='administration'?'Utilisateurs & rôles':me?.super_administrateur&&activeView==='audit'?'Journal de sécurité':TITLES[activeView]?.[0] || 'Accueil';
     return { user:me, companies:societes, companyId:currentSocieteId, view:activeView, title, taskTarget:me && taskTarget?.view===activeView ? taskTarget : null,
       subtitle:me?.super_administrateur&&activeView==='administration'?'Comptes utilisateurs, rôles et affectations':TITLES[activeView]?.[1] || '', groups, ...extra };
@@ -33,7 +33,7 @@
     const requested=routeView();
     return requested && visibleModules().some(g=>g.items.some(i=>i.v===requested)) ? requested : null;
   };
-  for(const view of ['accueil','pilotage','audit','stock','taux','articles','hotel-chambres','depots','inventaires','hotel-reception','cuisine','balance','grand-livre','saisie-od','plan-comptable','lettrage','rapprochement','cockpit','etats','analytique','tva','compta','rapports-commercial', 'dashboard', 'config-hotel', 'config-engins', 'config-transport', 'config-maintenance', 'contrats-transport', 'flotte-documents', 'engins-rpe', 'engins-reconciliation', 'engins-rapports', 'flotte', 'engins-parc', 'engins-heures', 'maintenance-parc', 'maintenance-interventions', 'carburant', 'tarifs-pos', 'transferts', 'caisse-exec', 'intersociete', 'nouvelle-req', 'requisitions', 'approbation', 'ordres', 'avances', 'caisse', 'courses', 'config', 'administration', 'systeme', 'rh', 'rh-simulateur', 'rh-decomptes', 'rh-finances', 'rh-paiements', 'rh-mensuel', 'achats', 'ventes', 'commandes', 'receptions', 'devis', 'fournisseurs', 'clients', 'pos'])if(view==='accueil'||window.KilimaNext.owns?.(view))RENDER[view]=()=>{};
+  for(const view of ['accueil','pilotage','audit','stock','taux','articles','hotel-chambres','depots','inventaires','hotel-reception','cuisine','balance','grand-livre','saisie-od','plan-comptable','lettrage','rapprochement','cockpit','etats','analytique','tva','compta','rapports-commercial', 'rapports-tresorerie', 'rapports-stock', 'rapports-transport', 'rapports-hotel', 'rapports-maintenance', 'rapports-compta', 'rapports-rh', 'config-hotel', 'config-engins', 'config-transport', 'config-maintenance', 'contrats-transport', 'flotte-documents', 'engins-rpe', 'engins-reconciliation', 'engins-rapports', 'flotte', 'engins-parc', 'engins-heures', 'maintenance-parc', 'maintenance-interventions', 'carburant', 'tarifs-pos', 'transferts', 'caisse-exec', 'intersociete', 'nouvelle-req', 'requisitions', 'approbation', 'ordres', 'avances', 'caisse', 'courses', 'config', 'administration', 'systeme', 'rh', 'rh-simulateur', 'rh-decomptes', 'rh-finances', 'rh-paiements', 'rh-mensuel', 'achats', 'ventes', 'commandes', 'receptions', 'devis', 'fournisseurs', 'clients', 'pos'])if(view==='accueil'||window.KilimaNext.owns?.(view))RENDER[view]=()=>{};
   const bridge={
     snapshot, api,
     refreshAccountingBadge:()=>refreshComptaBadge(),
