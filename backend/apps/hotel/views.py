@@ -294,11 +294,14 @@ class ClientViewSet(MetierModelViewSet):
         if request.method == 'GET':
             return Response([_tiers_dict(t) for t in tiers_visibles(sid).filter(type='client').order_by('nom')])
         payload = request.data or {}
-        if not str(payload.get('code') or '').strip() or len(str(payload.get('nom') or '').strip()) < 2:
-            return refus({'detail':'Code et nom du client requis.'}, status=422)
+        if len(str(payload.get('nom') or '').strip()) < 2:
+            return refus({'detail':'Nom du client requis.'}, status=422)
         verrouiller_catalogue(sid)
         verifier_doublon(tiers_visibles(sid), payload, 'nom')
-        t = Tiers.objects.create(societe_id=sid, type='client', code=payload['code'].strip().upper(), nom=payload['nom'].strip())
+        # Code laissé vide : numérotation proposée par le système (CLI-0001…).
+        code = str(payload.get('code') or '').strip().upper() or services.proposer_code(
+            tiers_visibles(sid).filter(type='client'), 'CLI')
+        t = Tiers.objects.create(societe_id=sid, type='client', code=code, nom=payload['nom'].strip())
         services.enregistrer_audit(request.user.id, 'INSERT', 'tiers', t.id, None, {'nom':t.nom})
         return Response(_tiers_dict(t), status=201)
 

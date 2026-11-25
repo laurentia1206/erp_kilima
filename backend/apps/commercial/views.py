@@ -104,12 +104,15 @@ class TiersViewSet(MetierModelViewSet):
         if request.method == "POST":
             payload = request.data or {}
             if payload.get("type") not in ("client", "fournisseur") \
-                    or not (payload.get("code") or "").strip() \
                     or not (payload.get("nom") or "").strip():
-                return refus({"detail": "type (client|fournisseur), code et nom requis."},
+                return refus({"detail": "type (client|fournisseur) et nom requis."},
                                 status=422)
             verrouiller_catalogue(sid)
             verifier_doublon(tiers_visibles(sid), payload, 'nom')
+            # Code laissé vide : le système numérote lui-même (CLI-0001, FRS-0001…).
+            code = (payload.get("code") or "").strip().upper() or services.proposer_code(
+                tiers_visibles(sid).filter(type=payload["type"]),
+                PREFIXES_TIERS[payload["type"]])
             coordonnees = {champ: (payload.get(champ) or "").strip() or None
                            for champ in ("adresse", "rccm", "nif", "telephone",
                                          "email", "contact_nom",
@@ -118,7 +121,7 @@ class TiersViewSet(MetierModelViewSet):
             if isinstance(auxiliaire, Response):
                 return auxiliaire
             t = Tiers.objects.create(
-                societe_id=sid, type=payload["type"], code=payload["code"].strip().upper(),
+                societe_id=sid, type=payload["type"], code=code,
                 nom=payload["nom"].strip(), intra_groupe=payload.get("intra_groupe", False),
                 limite_credit_usd=payload.get("limite_credit_usd"),
                 compte_auxiliaire=auxiliaire, **coordonnees)
@@ -710,6 +713,8 @@ def _commande_dict(c: Commande) -> dict:
 
 NATURES_ARTICLE = ("marchandise", "matiere_premiere", "consommable", "plat")
 NATURES_VENTE = ("marchandise", "plat")
+# Numérotation proposée par le système quand le code est laissé vide.
+PREFIXES_TIERS = {"client": "CLI", "fournisseur": "FRS", "agent": "AGT"}
 
 
 def _erreur_nature(art, sens):
@@ -1330,10 +1335,14 @@ class ArticleViewSet(MetierModelViewSet):
         if request.method == "POST":
             payload = request.data or {}
             code = (payload.get("code") or "").strip().upper()
-            if not code or not (payload.get("designation") or "").strip():
-                return refus({"detail": "code et designation requis."}, status=422)
+            if not (payload.get("designation") or "").strip():
+                return refus({"detail": "designation requise."}, status=422)
             verrouiller_catalogue(sid)
             verifier_doublon(Article.objects.filter(societe_id=sid), payload, 'designation')
+            if not code:
+                # Code laissé vide : numérotation proposée par le système.
+                code = services.proposer_code(
+                    Article.objects.filter(societe_id=sid), "ART")
             assujetti = payload.get("assujetti_tva", True)
             taux = payload["taux_tva"] if payload.get("taux_tva") is not None else float(
                 services.get_parametre("tva.taux_defaut", sid, "16"))

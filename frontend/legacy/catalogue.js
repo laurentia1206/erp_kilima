@@ -27,7 +27,7 @@ const Catalogue = (() => {
     modal({title:`Créer un ${article?'article':kind==='beneficiaire'?'bénéficiaire':kind}`,
       body:`<div class="catalogue-scope">Fiche propre à <b>${esc(company())}</b></div>
       ${kind==='beneficiaire'?'<div class="form-group"><label class="form-label">Type de bénéficiaire</label><select class="form-select cat-kind"><option value="agent">Agent</option><option value="fournisseur">Fournisseur</option><option value="client">Client</option></select><p class="muted">Choisissez un agent existant dans les résultats lorsqu’il est déjà enregistré. Une nouvelle fiche bénéficiaire ne crée pas de compte de connexion.</p></div>':''}
-      <div class="form-row"><div class="form-group"><label class="form-label">Code unique dans cette société</label><input class="form-input cat-code" maxlength="32" /></div>
+      <div class="form-row"><div class="form-group"><label class="form-label">Code (proposé — modifiable)</label><input class="form-input cat-code" maxlength="32" /></div>
       <div class="form-group"><label class="form-label">${article?'Désignation':'Nom'}</label><input class="form-input cat-name" maxlength="255" /></div></div>
       <div class="cat-matches" aria-live="polite"></div>
       ${article?`<div class="form-row"><div class="form-group"><label class="form-label">Nature</label><select class="form-select cat-nature"><option value="marchandise">Marchandise / article vendu</option><option value="matiere_premiere">Matière première</option><option value="consommable">Consommable</option></select></div><div class="form-group"><label class="form-label">Unité</label><input class="form-input cat-unit" value="unité" /></div></div>
@@ -39,6 +39,15 @@ const Catalogue = (() => {
       footer:'<button class="btn cat-cancel">Annuler</button><button class="btn btn-primary cat-save">Créer et sélectionner</button>'});
     const overlay=document.querySelector('#modal-root').lastElementChild;
     const $c=s=>overlay.querySelector(s);
+    // Code de suivi proposé par le système (même règle que le serveur sur champ vide).
+    const prefixes={article:'ART',client:'CLI',fournisseur:'FRS',agent:'AGT'};
+    const proposer=t=>{const p=prefixes[t]||'TRS';const re=new RegExp('^'+p+'-?0*(\\d+)$','i');let n=0;
+      for(const r of records){const m=re.exec(String(r.code||'').trim());if(m)n=Math.max(n,+m[1]);}
+      return p+'-'+String(n+1).padStart(4,'0');};
+    let codeLibre=false;
+    $c('.cat-code').value=proposer(article?'article':kind==='beneficiaire'?'agent':kind);
+    $c('.cat-code').addEventListener('input',()=>{codeLibre=true;});
+    $c('.cat-kind')?.addEventListener('change',()=>{if(!codeLibre)$c('.cat-code').value=proposer($c('.cat-kind').value);});
     const acceptable=item=>item.actif!==false && (!article || (!settings.stockRequired || item.gere_stock!==false) && (!settings.natureLocked || item.nature===(settings.nature||'marchandise')));
     const finish=item=>{if(sid!==currentSocieteId||!overlay.isConnected)return;if(!acceptable(item)){$c('.cat-error').textContent='Cette fiche ne correspond pas à ce champ (nature, stock ou statut).';return;}closeModal();done?.(item);};
     $c('.cat-cancel').onclick=closeModal;
@@ -55,7 +64,7 @@ const Catalogue = (() => {
       const button=$c('.cat-save');if(button.disabled)return;
       if(sid!==currentSocieteId){$c('.cat-error').textContent='La société a changé. Fermez et rouvrez ce formulaire.';return;}
       const code=$c('.cat-code').value.trim(),name=$c('.cat-name').value.trim();
-      if(!code||name.length<2){$c('.cat-error').textContent='Code et nom complet requis.';return;}
+      if(name.length<2){$c('.cat-error').textContent='Nom complet requis.';return;}
       const body={code,confirmer_homonyme:$c('.cat-confirm input').checked};
       if(article)Object.assign(body,{designation:name,nature:$c('.cat-nature').value,unite:$c('.cat-unit').value.trim()||'unité',prix_achat:+$c('.cat-buy').value,prix_vente:+$c('.cat-sell').value,taux_tva:+$c('.cat-tax').value,assujetti_tva:$c('.cat-vat').checked,gere_stock:$c('.cat-stock').checked});
       else Object.assign(body,{type:kind==='beneficiaire'?$c('.cat-kind').value:kind,nom:name,intra_groupe:!!$c('.cat-intra')?.checked,limite_credit_usd:$c('.cat-credit')?.value?+$c('.cat-credit').value:null});

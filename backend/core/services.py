@@ -53,6 +53,20 @@ def next_numero(type_piece: str, annee: int, societe_code: str | None, societe_i
     return f"{prefix}-{societe_code or 'GRP'}-{annee}-{n:06d}"
 
 
+def proposer_code(queryset, prefixe: str, largeur: int = 4) -> str:
+    """Prochain code libre « PREFIXE-0001 » pour un référentiel (articles,
+    tiers…). Les codes saisis à la main qui suivent le même motif comptent
+    aussi, pour ne jamais proposer un numéro déjà pris."""
+    import re
+    motif = re.compile(rf"^{re.escape(prefixe)}-?0*(\d+)$", re.I)
+    dernier = 0
+    for code in queryset.values_list("code", flat=True):
+        m = motif.match(str(code or "").strip())
+        if m:
+            dernier = max(dernier, int(m.group(1)))
+    return f"{prefixe}-{dernier + 1:0{largeur}d}"
+
+
 def get_parametre(cle: str, societe_id=None, defaut: str | None = None) -> str | None:
     """Paramètre : valeur spécifique société sinon valeur groupe."""
     if societe_id is not None:

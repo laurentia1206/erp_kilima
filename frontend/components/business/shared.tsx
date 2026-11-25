@@ -10,6 +10,16 @@ export const number = (value: number | string | null | undefined) => new Intl.Nu
 export const dateTime = (value?: string | null) => value ? new Date(serverTimestamp(value)).toLocaleString('fr-FR', { timeZone: 'Africa/Lubumbashi' }) : 'Non renseignée';
 export const today = () => new Date().toLocaleDateString('fr-CA', { timeZone: 'Africa/Lubumbashi' });
 export const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+/* Code de suivi propos\u00e9 par le syst\u00e8me pour les r\u00e9f\u00e9rentiels (articles,
+   clients, fournisseurs\u2026) : prochain num\u00e9ro libre \u00ab PREFIXE-0001 \u00bb, en
+   tenant compte des codes saisis \u00e0 la main qui suivent le m\u00eame motif.
+   Le serveur applique la m\u00eame r\u00e8gle quand le champ est laiss\u00e9 vide. */
+export function nextCode(codes: (string | null | undefined)[], prefix: string, width = 4): string {
+  const pattern = new RegExp(`^${prefix}-?0*(\\d+)$`, 'i');
+  let last = 0;
+  for (const code of codes) { const m = pattern.exec((code || '').trim()); if (m) last = Math.max(last, parseInt(m[1], 10)); }
+  return `${prefix}-${String(last + 1).padStart(width, '0')}`;
+}
 
 // Une réponse ancienne ne peut pas remplacer celle du filtre ou de la société active.
 export function useResource<T>(load: () => Promise<T>, interval = 0) {
