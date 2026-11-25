@@ -35,11 +35,26 @@
 .business-form-grid > * { grid-column: span 3; }
 .business-form-grid > .business-field:has(textarea) { grid-column: 1 / -1; }
 .business-form-grid > .business-field.business-field-compact { grid-column: span 2; }
+/* Lignes répétées (dépenses, frais, pièces…) : TOUS les champs d'une ligne
+   tiennent sur une seule rangée ; la description s'élargit, les nombres
+   restent étroits, le bouton Retirer ferme la rangée. */
+.business-form-grid.business-line-grid { display: flex; flex-wrap: wrap; gap: 0 14px; align-items: end; }
+.business-line-grid > * { flex: 1 1 150px; min-width: 120px; }
+.business-line-grid > :has(input:not([type])), .business-line-grid > :has(input[type="text"]), .business-line-grid > :has(textarea) { flex: 2.4 1 220px; }
+.business-line-grid > :has(select) { flex: 1.6 1 180px; }
+.business-line-grid > :has(input[type="number"]) { flex: 0.6 1 110px; min-width: 100px; }
+.business-line-grid > :has(input[type="date"]) { flex: 0.8 1 150px; }
+.business-line-grid > .business-field:has(textarea) { grid-column: auto; }
+.business-line-grid textarea { min-height: 40px; height: 40px; }
+.business-line-card { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0 12px; padding: 4px 14px; }
+.business-line-card > legend { font-size: 12px; font-weight: 600; color: var(--text2); padding: 0 4px; }
+.business-line-card > .business-form-grid { flex: 1 1 340px; min-width: 0; }
+.business-line-card > .btn { margin: 18px 0; }
 .business-fieldset { border: 0; padding: 0; min-width: 0; }
 .business-check { display: flex !important; align-items: center; gap: 8px; margin: 12px 0; font-size: 13px; }
 .business-check input { flex: 0 0 auto; }
 .business-matches { padding: 14px; background: #f0f6f5; border-radius: 10px; display: grid; gap: 8px; }
-@media(max-width:600px) { .business-form-grid { grid-template-columns: 1fr; } .business-form-grid > *, .business-form-grid > .business-field.business-field-compact { grid-column: 1 / -1; } }
+@media(max-width:600px) { .business-form-grid { grid-template-columns: 1fr; } .business-form-grid > *, .business-form-grid > .business-field.business-field-compact { grid-column: 1 / -1; } .business-line-grid > *, .business-line-grid > :has(input[type="number"]) { flex: 1 1 100%; min-width: 100%; } }
 .business-pages { justify-content: flex-end; }
 .business-pages span { margin-right: auto; color: var(--text2); }
 .business-table { overflow: auto; }
