@@ -26,6 +26,9 @@ frontend/public/legacy/
 livrables/
 data/*.db
 
+# Sauvegardes produites par deployment/sauvegarde.sh — JAMAIS dans git
+sauvegardes/
+
 # Divers
 *.log
 .DS_Store

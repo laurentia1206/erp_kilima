@@ -17,6 +17,9 @@ backend/
 frontend/
   Dockerfile
   nginx.conf
+deployment/                   # Sauvegarde et restauration côté serveur
+  sauvegarde.sh
+  restauration.sh
 docker-compose.yaml
 .dockerignore
 .env.docker.example
@@ -133,7 +136,8 @@ n'est pas ajoutée implicitement par cette configuration.
 
 ## Mise à jour
 
-Sauvegarder d'abord. Arrêter les services métier pendant les migrations :
+Sauvegarder d'abord (`./deployment/sauvegarde.sh`, voir plus bas). Arrêter les
+services métier pendant les migrations :
 
 ```sh
 docker compose --env-file .env.docker stop web frontend backend
@@ -149,10 +153,70 @@ exactement le déploiement.
 
 ## Sauvegarde PostgreSQL + documents (terminal Linux)
 
-Prévoir des sauvegardes quotidiennes chiffrées hors serveur et un essai de
-restauration régulier. Les commandes suivantes arrêtent les écritures pendant
-la copie ; changer le nom du dossier à chaque sauvegarde et vérifier chaque
-code de retour. `cp` évite les redirections binaires problématiques de PowerShell.
+Les données vivantes sont dans deux volumes Docker : `postgres_data` (la base)
+et `uploads` (les pièces jointes : justificatifs, pièces d'identité…). La table
+`piece_jointe` de la base référence chaque fichier du volume `uploads` par son
+chemin : **sauvegarder la base seule perd les documents, et inversement**. Les
+deux doivent être sauvegardés ensemble, au même moment.
+
+### Script fourni : `deployment/sauvegarde.sh`
+
+Le script sauvegarde la base (`pg_dump -Fc`) et les pièces jointes (archive du
+volume `uploads`) dans un dossier horodaté `sauvegardes/kilima_AAAA-MM-JJ_HHMMSS/`,
+avec empreintes SHA256, fiche `INFO.txt` et rotation automatique (14 sauvegardes
+conservées par défaut). Il arrête les services applicatifs pendant la copie pour
+garantir la cohérence base/documents, puis les redémarre — y compris en cas
+d'erreur. Depuis la racine du dépôt sur le serveur :
+
+```sh
+chmod +x deployment/sauvegarde.sh deployment/restauration.sh   # une seule fois
+./deployment/sauvegarde.sh
+```
+
+Options utiles : `--dossier CHEMIN`, `--retention N`, `--a-chaud` (sans arrêt
+des services : plus rapide, mais base et documents peuvent diverger si quelqu'un
+travaille à ce moment), `--simulation` (affiche les commandes sans rien faire),
+`--help`.
+
+**Quand l'exécuter** : chaque nuit, en dehors des heures de travail (l'application
+est indisponible une à quelques minutes). Exemple de planification à 2 h du matin
+via la crontab de l'utilisateur qui administre Docker (`crontab -e`), en adaptant
+le chemin d'installation :
+
+```cron
+0 2 * * * cd /opt/erp_kilima && ./deployment/sauvegarde.sh >> sauvegardes/journal.log 2>&1
+```
+
+Le dossier `sauvegardes/` reste sur le serveur : **copier régulièrement les
+sauvegardes hors du serveur** (chiffrées), avec une copie sécurisée de
+`.env.docker` — sans lui (mot de passe PostgreSQL), la restauration est
+impossible. Faire un essai de restauration régulier (voir ci-dessous).
+Ne pas modifier POSTGRES_PASSWORD sur un volume existant en pensant changer le
+mot de passe SQL : la rotation doit aussi être faite dans PostgreSQL, puis dans
+la configuration des services.
+
+### Restauration : `deployment/restauration.sh`
+
+```sh
+./deployment/restauration.sh sauvegardes/kilima_2026-11-25_020000
+```
+
+Le script vérifie les empreintes, demande de taper `RESTAURER` (il **remplace**
+la base et les pièces jointes), restaure les deux ensemble puis redémarre
+l'application. Pour un essai sans toucher à la production, `--projet
+kilima-restauration` restaure dans des volumes isolés (prévoir un fichier
+d'environnement avec un autre HTTP_PORT, voir « Restauration dans un
+environnement distinct et vide » plus bas). Utiliser de
+préférence la version du code notée dans `INFO.txt` de la sauvegarde : si le
+code déployé est plus récent, les migrations manquantes s'appliqueront au
+redémarrage. Vérifier ensuite les totaux comptables, les droits, les
+justificatifs et le journal d'audit.
+
+### Commandes manuelles équivalentes (référence)
+
+Ce que fait le script, à la main — utile pour comprendre ou dépanner. Changer
+le nom du dossier à chaque sauvegarde et vérifier chaque code de retour.
+`cp` évite les redirections binaires problématiques de PowerShell.
 
 ```sh
 mkdir -p sauvegarde
@@ -162,11 +226,6 @@ docker compose --env-file .env.docker cp db:/tmp/kilima.dump sauvegarde/kilima.d
 docker compose --env-file .env.docker run --rm --no-deps --user root --entrypoint tar -v "$PWD/sauvegarde:/backup" backend -czf /backup/documents.tgz -C /app/backend/uploads .
 docker compose --env-file .env.docker up -d
 ```
-
-Conserver le code correspondant et une copie sécurisée de `.env.docker` avec
-la sauvegarde. Ne pas modifier POSTGRES_PASSWORD sur un volume existant en
-pensant changer le mot de passe SQL : la rotation doit aussi être faite dans
-PostgreSQL, puis dans la configuration des services.
 
 ### Restauration dans un environnement distinct et vide
 
