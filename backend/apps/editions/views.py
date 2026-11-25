@@ -22,6 +22,8 @@ TEAL='176B61'; NAVY='183342'; GRAY='61717C'
 # Gabarit « FC » (modèles carburant de la direction) : bandes de section gris
 # foncé à texte blanc, cellules de libellés gris clair, filets fins.
 INK='585858'; LABEL='EDEDED'; FOND='F7F7F7'
+# Colonnes de montants : toujours deux décimales, même pour un entier.
+EST_MONTANT=re.compile(r'montant|prix|p\.u\.|total|solde|débit|crédit|cump|valeur|coût|cout|\bnet\b|brut|base|\bht\b|\bttc\b|usd|cdf',re.I)
 
 
 def texte(v,limite=20000):
@@ -130,26 +132,44 @@ def pdf(spec,soc):
         title=spec['titre'],author=soc['nom'],pageCompression=1)
     def page(c,d):
         c.saveState();w,h=size
-        c.setFillColor(couleur(TEAL));c.rect(40,h-38,34,4,fill=1,stroke=0)
-        company=p(soc['nom'],ParagraphStyle('Société',parent=bold,fontSize=13,leading=16,spaceBefore=0))
-        _,ch=company.wrap(w-180,42);company.drawOn(c,40,h-50-ch)
-        c.setFont('Edition',8);c.setFillColor(couleur(GRAY));c.drawRightString(w-40,h-48,datetime.now().strftime('%d/%m/%Y · %H:%M'))
-        if soc['ville']: c.drawRightString(w-40,h-61,soc['ville'][:35])
+        # Bande d'identité sur toute la largeur, accent teal fin dessous.
+        c.setFillColor(couleur(INK));c.rect(0,h-10,w,10,fill=1,stroke=0)
+        c.setFillColor(couleur(TEAL));c.rect(0,h-13,w,3,fill=1,stroke=0)
+        company=p(soc['nom'],ParagraphStyle('Société',parent=bold,fontSize=14,leading=17,spaceBefore=0))
+        _,ch=company.wrap(w-200,42);company.drawOn(c,40,h-46-ch)
+        c.setFont('Edition',8);c.setFillColor(couleur(GRAY))
+        if soc['ville']: c.drawString(40,h-74,soc['ville'][:60])
+        c.drawRightString(w-40,h-48,'Édité le '+datetime.now().strftime('%d/%m/%Y à %H:%M'))
         if spec.get('reference'):
-            c.setFont('EditionBold',8);c.drawRightString(w-40,h-74,spec['reference'][:48])
+            c.setFillColor(couleur(NAVY));c.setFont('EditionBold',9);c.drawRightString(w-40,h-62,spec['reference'][:48])
         c.setStrokeColor(couleur('DCE5E5'));c.line(40,h-92,w-40,h-92)
         c.line(40,40,w-40,40)
         foot=p(soc['references'] or soc['nom'],ParagraphStyle('Footer',parent=normal,fontSize=6.5,leading=9))
         _,fh=foot.wrap(w-150,28);foot.drawOn(c,40,32-fh)
         c.setFont('Edition',7);c.drawRightString(w-40,23,f'Page {d.page}');c.restoreState()
-    story=[p(spec['titre'],title)]
-    if spec['sous_titre']: story.append(p(spec['sous_titre']))
+    # Titre du document : bande sombre pleine largeur, texte blanc centré —
+    # le style des modèles FC de la direction.
+    bande_titre=ParagraphStyle('BandeTitre',parent=bold,fontName='EditionBold',fontSize=13.5,leading=17,
+        textColor=colors.white,alignment=TA_CENTER,spaceBefore=0,spaceAfter=0)
+    tt=Table([[p(spec['titre'].upper(),bande_titre)]],colWidths=[width])
+    tt.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),couleur(INK)),
+        ('LEFTPADDING',(0,0),(-1,-1),16),('RIGHTPADDING',(0,0),(-1,-1),16),
+        ('TOPPADDING',(0,0),(-1,-1),9),('BOTTOMPADDING',(0,0),(-1,-1),9)]))
+    story=[tt]
+    if spec['sous_titre']:
+        story.append(Spacer(1,6))
+        story.append(p(spec['sous_titre'],ParagraphStyle('SousTitre',parent=normal,alignment=TA_CENTER,textColor=couleur(GRAY))))
+    story.append(Spacer(1,8))
     for b in spec['blocs']:
         if b['type']=='table':
             cols=b['colonnes'];n=len(cols)
             groupes=b.get('entetes_groupes')
-            def affiche(v):
+            def affiche(v,col=''):
                 if isinstance(v,(int,float)):
+                    # Quantités et taux entiers sans décimales (3 et non 3,00) ;
+                    # les colonnes de montants gardent toujours 2 décimales.
+                    if float(v).is_integer() and not EST_MONTANT.search(str(col)):
+                        return format(int(v),',d').replace(',',' ')
                     precision=max(2,min(8,-Decimal(str(v)).as_tuple().exponent))
                     return format(v,f',.{precision}f').replace(',',' ').replace('.',',')
                 return str(v)
@@ -168,7 +188,7 @@ def pdf(spec,soc):
                     tete_need[i]=max(tete_need[i],_mesure(mot,'EditionBold',8))
             for r in b['lignes']:
                 for i,v in enumerate(r):
-                    s=affiche(v).strip()
+                    s=affiche(v,cols[i]).strip()
                     if not s: continue
                     wv=_mesure(s,'EditionBold',8)
                     if est_nombre.match(s):
@@ -202,7 +222,7 @@ def pdf(spec,soc):
             rows.append([p(x,th) for x in cols])
             for r in b['lignes']:
                 fort=bool(r and re.match(r'^(total|net à payer|résultat|solde)',str(r[0]),re.I))
-                rows.append([p(affiche(v),(right_bold if fort else right) if re.fullmatch(r'[-+\d\s.,%]+(?: USD| CDF| \$)?',str(v)) else (cell_bold if fort else cell)) for v in r])
+                rows.append([p(affiche(v,cols[i]),(right_bold if fort else right) if re.fullmatch(r'[-+\d\s.,%]+(?: USD| CDF| \$)?',str(v)) else (cell_bold if fort else cell)) for i,v in enumerate(r)])
             entetes=2 if groupes else 1
             t=Table(rows,colWidths=widths,repeatRows=entetes,hAlign='LEFT',splitByRow=1,splitInRow=1)
             demi=pad/2
@@ -213,6 +233,11 @@ def pdf(spec,soc):
             for k,r in enumerate(b['lignes']):
                 if r and re.match(r'^(total|net à payer|résultat|solde)',str(r[0]),re.I):
                     style.append(('BACKGROUND',(0,entetes+k),(-1,entetes+k),couleur(LABEL)))
+                    # Le libellé s'étend sur les colonnes vides qui le suivent :
+                    # pas de petites cases vides quadrillées sur les totaux.
+                    j=1
+                    while j<len(r) and not str(r[j]).strip(): j+=1
+                    if j>1: style.append(('SPAN',(0,entetes+k),(j-1,entetes+k)))
             if groupes:
                 j=0
                 for titre,span in groupes:
@@ -316,10 +341,14 @@ def xlsx(spec,soc):
                 j+=span
             cols=fusion
         n=len(cols);last=get_column_letter(max(2,n))
-        for row,value in [(1,soc['nom']),(2,spec['titre']),(3,spec['sous_titre']),(4,soc['references']),(5,'Édité le '+datetime.now().strftime('%d/%m/%Y à %H:%M'))]:
+        for row,value in [(1,soc['nom']),(2,spec['titre'].upper()),(3,spec['sous_titre']),(4,soc['references']),(5,'Édité le '+datetime.now().strftime('%d/%m/%Y à %H:%M'))]:
             ws.merge_cells(f'A{row}:{last}{row}');textcell(ws.cell(row,1),value)
-            ws.cell(row,1).font=Font(name='Calibri',size=18 if row==2 else 12 if row==1 else 10,bold=row in [1,2],color=INK if row==2 else NAVY)
-            ws.cell(row,1).alignment=Alignment(wrap_text=True,vertical='center');ws.row_dimensions[row].height=34 if row==2 else 27
+            # Le titre reprend la bande sombre des documents PDF (style FC).
+            ws.cell(row,1).font=Font(name='Calibri',size=16 if row==2 else 12 if row==1 else 10,bold=row in [1,2],color='FFFFFF' if row==2 else NAVY)
+            if row==2:
+                fill=PatternFill('solid',fgColor=INK)
+                for j in range(1,max(2,n)+1): ws.cell(row,j).fill=fill
+            ws.cell(row,1).alignment=Alignment(wrap_text=True,vertical='center',horizontal='center' if row==2 else 'left');ws.row_dimensions[row].height=34 if row==2 else 27
         for j,c in enumerate(cols,1):
             textcell(ws.cell(7,j),c);ws.cell(7,j).font=Font(name='Calibri',bold=True,color='FFFFFF',size=10)
             ws.cell(7,j).fill=PatternFill('solid',fgColor=INK);ws.cell(7,j).alignment=Alignment(wrap_text=True,vertical='center')
@@ -336,7 +365,7 @@ def xlsx(spec,soc):
                             num=Decimal(clean)
                             if num.is_finite() and len(num.as_tuple().digits)<=15: v=float(num);numeric=True
                         except InvalidOperation: pass
-                if numeric: c.value=v;c.number_format='#,##0.00######;[Red](#,##0.00######);"–"'
+                if numeric: c.value=v;c.number_format='#,##0;[Red](#,##0);"–"' if float(v).is_integer() and not EST_MONTANT.search(cols[j-1]) else '#,##0.00######;[Red](#,##0.00######);"–"'
                 else: textcell(c,v)
                 fort=bool(r and re.match(r'^(total|net à payer|résultat|solde)',str(r[0]),re.I))
                 c.font=Font(name='Calibri',size=11,color=NAVY,bold=fort)
